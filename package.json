@@ -1,0 +1,19 @@
+{
+  "name": "home-hub",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Skylight-style family wall display: synced Google Calendars, recurring and one-time to-dos.",
+  "scripts": {
+    "dev": "node scripts/dev-server.js",
+    "demo": "node scripts/dev-server.js --demo",
+    "test": "node --test test/*.test.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.0",
+    "ical.js": "^2.2.1"
+  }
+}

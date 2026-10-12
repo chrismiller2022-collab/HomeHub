@@ -1,0 +1,10 @@
+{
+  "name": "Home Hub",
+  "short_name": "Home Hub",
+  "start_url": "/",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#F4F1EA",
+  "theme_color": "#F4F1EA",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}

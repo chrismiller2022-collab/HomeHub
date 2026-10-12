@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+  <meta name="theme-color" content="#F4F1EA">
+  <meta name="mobile-web-app-capable" content="yes">
+  <title>Home Hub</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icon.svg">
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <div class="shell" id="shell">
+    <nav class="rail" id="rail" aria-label="Sections">
+      <button class="rail-item" data-go="today"><span class="rail-ico" data-icon="home"></span><span>Today</span></button>
+      <button class="rail-item" data-go="calendar"><span class="rail-ico" data-icon="calendar"></span><span>Calendar</span></button>
+      <button class="rail-item" data-go="todos"><span class="rail-ico" data-icon="check"></span><span>To-dos</span></button>
+      <button class="rail-item" data-go="settings"><span class="rail-ico" data-icon="gear"></span><span>Settings</span></button>
+      <div class="rail-clock" id="railClock"></div>
+    </nav>
+    <main class="views" id="views">
+      <section class="view" id="view-today"></section>
+      <section class="view" id="view-calendar"></section>
+      <section class="view" id="view-todos"></section>
+      <section class="view" id="view-settings"></section>
+    </main>
+  </div>
+  <div class="sheet-layer" id="sheetLayer"></div>
+  <div class="toasts" id="toasts" aria-live="polite"></div>
+  <div class="night" id="night"></div>
+  <div class="offline" id="offline">Offline · showing last data</div>
+
+  <script>
+    // Wall-display self-healing: if the app failed to start (stale page after a deploy, network
+    // blip at boot), keep reloading until it does.
+    setTimeout(function () { if (!window.HUB_STARTED) location.reload(); }, 15000);
+  </script>
+  <script src="/app.js"></script>
+</body>
+</html>
