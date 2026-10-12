@@ -49,6 +49,9 @@
     plus: '<path d="M12 5v14M5 12h14"/>',
     dots: '<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>',
     pin: '<path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/>',
+    chat: '<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20.5l1.4-4.6A8 8 0 1 1 21 12z"/>',
+    meals: '<path d="M7 3v8M4 3v5a3 3 0 0 0 6 0V3M7 11v10M17 21V3c-2.5 1.5-4 4.5-4 8h4"/>',
+    moon: '<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/>',
     star: '<path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z"/>'
   };
   function icon(name, size, fill) {
@@ -82,6 +85,13 @@
     calAnchor: dayStart(new Date()),
     hiddenCals: store('hiddenCals') || {},
     todoMode: 'today',
+    meals: null,
+    groceries: null,
+    mealAnchor: dayStart(new Date()),
+    starDetail: {},
+    todayMeals: [],
+    groceryCount: 0,
+    sleepManual: false,
     allTasks: null,
     pending: {},
     nightWokenUntil: 0,
@@ -104,6 +114,7 @@
 
   function api(method, path, body) {
     var opts = { method: method, headers: { 'x-hub-key': hubKey() } };
+    if (store('person')) opts.headers['x-hub-person'] = store('person');
     if (body) { opts.headers['content-type'] = 'application/json'; opts.body = JSON.stringify(body); }
     return fetch(path, opts).then(function (res) {
       return res.json().catch(function () { return {}; }).then(function (data) {
@@ -169,6 +180,18 @@
       S.settings = d.settings;
       S.tasks = d.tasks;
       S.stars = d.stars || {};
+      // Daily star goal just reached by a kid: a bigger celebration.
+      var goal = d.settings.dailyStarGoal;
+      if (!first && goal) Object.keys(d.starDetail || {}).forEach(function (id) {
+        var before = (S.starDetail[id] || {}).today || 0, now = d.starDetail[id].today;
+        if (before < goal && now >= goal) {
+          celebrate(person(id).color, true);
+          toast('⭐ <b>' + esc(person(id).name) + '</b> hit today’s star goal!');
+        }
+      });
+      S.starDetail = d.starDetail || {};
+      S.todayMeals = d.meals || [];
+      S.groceryCount = d.groceryCount || 0;
       if (first) { loadWeather(); }
       render();
     });
@@ -225,6 +248,7 @@
     if (S.view === 'today') renderToday();
     if (S.view === 'calendar') renderCalendar();
     if (S.view === 'todos') renderTodos();
+    if (S.view === 'meals') renderMeals();
     if (S.view === 'settings' && !$('#view-settings').dataset.mounted) renderSettings();
   }
 
@@ -304,8 +328,18 @@
       '<div class="today"><div>' + agenda(now) +
       '<div class="tomorrow"><div class="label" style="margin-bottom:8px">Tomorrow · ' + DAYS[tom.getDay()] + '</div>' + agenda(tom, true) + '</div>' +
       forecastBlock() + '</div>' +
-      '<div class="card today-todos"><div class="row" style="justify-content:space-between;margin-bottom:12px"><h2 style="font-size:24px">To-dos</h2>' +
-      '<button class="btn btn--sm btn--dark" data-act="add-todo">' + icon('plus', 18) + 'Add</button></div>' + todoLanes(true) + '</div></div>';
+      '<div>' + todayMealsCard() + '<div class="card today-todos"><div class="row" style="justify-content:space-between;margin-bottom:12px"><h2 style="font-size:24px">To-dos</h2>' +
+      '<button class="btn btn--sm btn--dark" data-act="add-todo">' + icon('plus', 18) + 'Add</button></div>' + todoLanes(true) + '</div></div></div>';
+  }
+
+  function todayMealsCard() {
+    var t = today(), slots = mealSlots().map(function (x) { return x[0]; });
+    var list = S.todayMeals.filter(function (m) { return m.date === t && slots.indexOf(m.slot) > -1; });
+    var tomorrow = S.todayMeals.filter(function (m) { return m.date !== t && m.slot === 'dinner'; })[0];
+    return '<button class="card meal-today" data-go="meals"><div class="label">' + (list.length === 1 && list[0].slot === 'dinner' ? 'Dinner tonight' : 'Meals today') + '</div>' +
+      (list.length ? list.map(function (m) { return '<div class="meal-today-title">' + (slots.length > 1 ? '<span class="faint">' + esc(m.slot) + ' · </span>' : '') + esc(m.title) + '</div>'; }).join('') :
+        '<div class="meal-today-title faint">Nothing planned yet</div>') +
+      '<div class="todo-meta">' + (tomorrow ? 'Tomorrow: ' + esc(tomorrow.title) + ' · ' : '') + S.groceryCount + ' on the grocery list</div></button>';
   }
 
   // ---------------------------------------------------------------- To-dos
@@ -352,11 +386,13 @@
     var el = $('#view-todos');
     var left = S.tasks.filter(function (t) { return !t.done; }).length;
     var head = '<div class="head"><div><h1>To-dos</h1><div class="sub">' +
-      (S.todoMode === 'today' ? (left ? left + ' left for today' : 'All caught up') + ' · press and hold a to-do to edit it' : 'Everything, including what repeats') + '</div></div>' +
+      (S.todoMode === 'today' ? (left ? left + ' left for today' : 'All caught up') + ' · press and hold a to-do to edit it' : S.todoMode === 'stars' ? 'Stars earned and rewards' : 'Everything, including what repeats') + '</div></div>' +
       '<div class="row"><div class="seg"><button data-todo-mode="today" class="' + (S.todoMode === 'today' ? 'is-on' : '') + '">Today</button>' +
-      '<button data-todo-mode="all" class="' + (S.todoMode === 'all' ? 'is-on' : '') + '">All</button></div>' +
+      '<button data-todo-mode="all" class="' + (S.todoMode === 'all' ? 'is-on' : '') + '">All</button>' +
+      (kids().length ? '<button data-todo-mode="stars" class="' + (S.todoMode === 'stars' ? 'is-on' : '') + '">Stars</button>' : '') + '</div>' +
       '<button class="btn btn--dark" data-act="add-todo">' + icon('plus', 20) + 'Add to-do</button></div></div>';
     if (S.todoMode === 'today') { el.innerHTML = head + todoLanes(false); return; }
+    if (S.todoMode === 'stars') { el.innerHTML = head + renderStars(); return; }
 
     if (!S.allTasks) {
       el.innerHTML = head + '<div class="empty">Loading…</div>';
@@ -403,6 +439,7 @@
       t.done = true;
       t.doneBy = by || t.assignee;
       var earner = person(t.doneBy);
+      if (t.stars && earner.stars) celebrate(earner.color, false);
       toast('<b>' + esc(t.title) + '</b> done' + (t.stars && earner.stars ? ' · +' + t.stars + '★ ' + esc(earner.name) : ''), function () {
         api('DELETE', '/api/tasks/' + t.id + '/done?date=' + today()).then(loadState);
       });
@@ -640,6 +677,8 @@
     el.innerHTML = '<div class="head"><div><h1>Settings</h1><div class="sub">Easiest from a phone or laptop: open this page there with the same link.</div></div></div><div class="empty">Loading…</div>';
     api('GET', '/api/settings').then(function (d) {
       draftSettings = d.settings;
+      S.settingsSms = d.sms;
+      S.settingsAssistant = d.assistant;
       drawSettings();
     }, function (e) { el.innerHTML = '<div class="empty">' + esc(e.message) + '</div>'; });
   }
@@ -651,11 +690,21 @@
       if (!st) return '';
       return st.ok ? '<span class="status-ok">Synced · ' + st.count + ' events in view</span>' : '<span class="status-bad">' + esc(st.error) + '</span>';
     };
-    var personOpts = function (sel) {
-      return '<option value="">Nobody in particular</option>' + s.people.map(function (p, i) {
+    var personOpts = function (sel, blank) {
+      return '<option value="">' + (blank || 'Nobody in particular') + '</option>' + s.people.map(function (p, i) {
         return '<option value="' + esc(p.id || ('new' + i)) + '"' + (p.id && p.id === sel ? ' selected' : '') + '>' + esc(p.name || '(unnamed)') + '</option>';
       }).join('');
     };
+    var opt = function (v, label, cur) { return '<option value="' + v + '"' + (String(cur) === String(v) ? ' selected' : '') + '>' + label + '</option>'; };
+    var pct = function (key, lo) {
+      var out = '';
+      for (var v = 100; v >= lo; v -= 5) out += opt(v, v + '%', s.brightness[key]);
+      return out;
+    };
+    var g = s.groceryReminder || { enabled: false, day: 4, people: [] };
+    var lock = store('lockScreen');
+    var lockOn = lock === true || (lock == null && /HomeHubKiosk/.test(navigator.userAgent));
+
     el.innerHTML = '<div class="head"><div><h1>Settings</h1><div class="sub">Easiest from a phone or laptop: open this page there with the same link.</div></div>' +
       '<button class="btn btn--dark" data-act="save-settings">Save</button></div><div class="settings">' +
 
@@ -665,15 +714,26 @@
       '<div class="row"><label class="field"><span>Weather location</span><input class="input" data-loc-q value="' + esc(s.location ? s.location.name : '') + '" placeholder="City or ZIP"></label>' +
       '<button class="btn" data-act="find-loc" style="align-self:flex-end">Find</button></div><div data-loc-results class="choice"></div>' +
       (s.location ? '<p class="help">Weather for ' + esc(s.location.name) + ' (' + s.location.lat.toFixed(2) + ', ' + s.location.lon.toFixed(2) + ') · <button class="faint" data-act="clear-loc"><u>remove</u></button></p>' : '') +
-      '<div class="row"><label class="field"><span>Units</span><select class="input" data-s="units"><option value="fahrenheit"' + (s.units !== 'celsius' ? ' selected' : '') + '>°F</option><option value="celsius"' + (s.units === 'celsius' ? ' selected' : '') + '>°C</option></select></label>' +
-      '<label class="field"><span>Week starts</span><select class="input" data-s="weekStartsOn"><option value="0"' + (s.weekStartsOn !== 1 ? ' selected' : '') + '>Sunday</option><option value="1"' + (s.weekStartsOn === 1 ? ' selected' : '') + '>Monday</option></select></label>' +
-      '<label class="field"><span>Dim screen from</span><select class="input" data-s="nightStart">' + hourOpts(s.nightStart) + '</select></label>' +
-      '<label class="field"><span>until</span><select class="input" data-s="nightEnd">' + hourOpts(s.nightEnd) + '</select></label></div></section>' +
+      '<div class="row"><label class="field"><span>Units</span><select class="input" data-s="units">' + opt('fahrenheit', '°F', s.units) + opt('celsius', '°C', s.units) + '</select></label>' +
+      '<label class="field"><span>Week starts</span><select class="input" data-s="weekStartsOn" data-num>' + opt(0, 'Sunday', s.weekStartsOn) + opt(1, 'Monday', s.weekStartsOn) + '</select></label></div></section>' +
 
-      '<section class="card form"><h2>People</h2><p class="help">Everyone who gets to-dos. Turn on stars for kids who earn them.</p>' +
+      '<section class="card form"><h2>Screen: sleep and brightness</h2>' +
+      '<div class="row"><label class="field"><span>At night</span><select class="input" data-s="sleepStyle">' + opt('dim', 'Dim the screen', s.sleepStyle) + opt('clock', 'Show only a dim clock', s.sleepStyle) + opt('off', 'Stay on', s.sleepStyle) + '</select></label>' +
+      '<label class="field"><span>Night from</span><select class="input" data-s="nightStart" data-num>' + hourOpts(s.nightStart) + '</select></label>' +
+      '<label class="field"><span>until</span><select class="input" data-s="nightEnd" data-num>' + hourOpts(s.nightEnd) + '</select></label></div>' +
+      '<div class="row"><label class="field"><span>Brightness</span><select class="input" data-b="mode">' + opt('schedule', 'By time of day', s.brightness.mode) + opt('auto', 'Automatic (light sensor)', s.brightness.mode) + opt('off', 'Always full', s.brightness.mode) + '</select></label>' +
+      '<label class="field"><span>Daytime</span><select class="input" data-b="day" data-num>' + pct('day', 10) + '</select></label>' +
+      '<label class="field"><span>Evening from</span><select class="input" data-b="eveningStart" data-num>' + hourOpts(s.brightness.eveningStart).replace(/<option value="([0-9]|1[01])"[^>]*>[^<]*<\/option>/g, '') + '</select></label>' +
+      '<label class="field"><span>Evening</span><select class="input" data-b="evening" data-num>' + pct('evening', 10) + '</select></label>' +
+      '<label class="field"><span>Night</span><select class="input" data-b="night" data-num>' + pct('night', 5) + '</select></label></div>' +
+      '<p class="help">' + (native ? 'This screen controls its backlight directly.' : 'In a regular browser this darkens the page. The Home Hub kiosk app on the frame sets the real backlight, and “Automatic” uses the frame’s light sensor if it has one.') +
+      ' Tap the moon in the sidebar to put the screen to sleep any time; tap the screen to wake it.</p></section>' +
+
+      '<section class="card form"><h2>People</h2><p class="help">Everyone who gets to-dos. Turn on stars for kids who earn them. A mobile number lets that person text the meal planner and get grocery reminders.</p>' +
       s.people.map(function (p, i) {
         return '<div class="list-item"><div class="row"><label class="field"><span>Name</span><input class="input" data-p="' + i + '" data-k="name" value="' + esc(p.name) + '"></label>' +
           '<label class="field" style="flex:none;min-width:0"><span>Color</span><input class="color" type="color" data-p="' + i + '" data-k="color" value="' + esc(p.color) + '"></label>' +
+          '<label class="field"><span>Mobile (optional)</span><input class="input" type="tel" data-p="' + i + '" data-k="phone" value="' + esc(p.phone || '') + '" placeholder="(555) 123-4567"></label>' +
           '<label class="check-row"><input type="checkbox" data-p="' + i + '" data-k="stars"' + (p.stars ? ' checked' : '') + '> Stars</label>' +
           '<button class="btn btn--sm btn--danger" data-del-person="' + i + '">Remove</button></div></div>';
       }).join('') + '<div><button class="btn btn--sm" data-act="add-person">' + icon('plus', 16) + ' Add person</button></div></section>' +
@@ -690,34 +750,76 @@
           '<span style="flex:1">' + statusFor(c.id) + '</span><button class="btn btn--sm btn--danger" data-del-cal="' + i + '">Remove</button></div></div>';
       }).join('') + '<div><button class="btn btn--sm" data-act="add-cal">' + icon('plus', 16) + ' Add calendar</button></div></section>' +
 
-      '<section class="card form"><h2>This screen</h2><p class="help">Signed in with a household key. ' +
-      '<button class="faint" data-act="forget-key"><u>Sign this screen out</u></button></p></section>' +
+      '<section class="card form"><h2>Meals and groceries</h2>' +
+      '<div class="field"><span>Meals to plan each day</span><div class="choice">' + MEAL_SLOTS.map(function (m) {
+        return '<button type="button" data-slotchk="' + m[0] + '" class="' + (s.mealSlots.indexOf(m[0]) > -1 ? 'is-on' : '') + '">' + m[1] + '</button>';
+      }).join('') + '</div></div>' +
+      '<label class="check-row"><input type="checkbox" data-g="enabled"' + (g.enabled ? ' checked' : '') + '> Text a grocery-order reminder every</label>' +
+      '<div class="row"><label class="field"><span>Day</span><select class="input" data-g="day" data-num>' + DAYS.map(function (d, i) { return opt(i, d, g.day); }).join('') + '</select></label>' +
+      '<div class="field"><span>To</span><div class="choice">' + s.people.filter(function (p) { return p.id; }).map(function (p) {
+        return '<button type="button" data-gp="' + esc(p.id) + '" class="' + (g.people.indexOf(p.id) > -1 ? 'is-on' : '') + '">' + esc(p.name) + '</button>';
+      }).join('') + '</div></div></div>' +
+      '<p class="help">The reminder lists what’s on the grocery list and this week’s meals. ' +
+      (S.settingsSms ? 'Texting is set up.' : '<b>Texting isn’t set up yet</b>: add the Twilio settings in Vercel (see the README). Until then, add a weekly to-do like “Order groceries” on Thursdays.') + ' ' +
+      (S.settingsAssistant ? 'The meal planner is on: family members can text it, or use “Ask the meal planner” on the Meals screen.' : '<b>The meal planner is off</b>: it needs ANTHROPIC_API_KEY in Vercel.') + '</p></section>' +
+
+      '<section class="card form"><h2>Stars and rewards</h2><div class="row">' +
+      '<label class="field"><span>Daily star goal (per kid)</span><input class="input" type="number" min="0" max="50" data-s="dailyStarGoal" data-num value="' + (s.dailyStarGoal || 0) + '"></label>' +
+      '<label class="field"><span>When a starred to-do is done</span><select class="input" data-s="celebration">' + opt('confetti', 'Confetti', s.celebration) + opt('stars', 'Shower of stars', s.celebration) + opt('off', 'No animation', s.celebration) + '</select></label></div>' +
+      '<div class="field"><span>Rewards kids can spend stars on</span></div>' +
+      s.rewards.map(function (r, i) {
+        return '<div class="row"><label class="field" style="flex:none;min-width:0;width:80px"><span>Icon</span><input class="input" data-r="' + i + '" data-k="emoji" value="' + esc(r.emoji || '🎁') + '"></label>' +
+          '<label class="field"><span>Reward</span><input class="input" data-r="' + i + '" data-k="title" value="' + esc(r.title) + '" placeholder="Movie night"></label>' +
+          '<label class="field" style="flex:none;min-width:0;width:110px"><span>Stars</span><input class="input" type="number" min="1" data-r="' + i + '" data-k="stars" value="' + r.stars + '"></label>' +
+          '<button class="btn btn--sm btn--danger" data-del-reward="' + i + '" style="align-self:flex-end">Remove</button></div>';
+      }).join('') + '<div><button class="btn btn--sm" data-act="add-reward">' + icon('plus', 16) + ' Add reward</button></div></section>' +
+
+      '<section class="card form"><h2>Parent lock</h2><p class="help">With a PIN set, a locked screen lets kids look around and tick things off, but adding, editing, deleting, rewards and Settings ask for the PIN (it stays unlocked for 5 minutes).</p>' +
+      '<div class="row">' + (s.hasPin ? '<label class="field"><span>Current PIN</span><input class="input" type="password" inputmode="numeric" data-pin="current" autocomplete="off"></label>' : '') +
+      '<label class="field"><span>' + (s.hasPin ? 'New PIN (blank removes it)' : 'New PIN (4–8 digits)') + '</span><input class="input" type="password" inputmode="numeric" data-pin="pin" autocomplete="off"></label>' +
+      '<button class="btn" data-act="set-pin" style="align-self:flex-end">' + (s.hasPin ? 'Change PIN' : 'Set PIN') + '</button></div>' +
+      '<label class="check-row"><input type="checkbox" data-local="lockScreen"' + (lockOn ? ' checked' : '') + '> Lock this screen' + (/HomeHubKiosk/.test(navigator.userAgent) ? ' (on by default in the kiosk app)' : '') + '</label></section>' +
+
+      '<section class="card form"><h2>This device</h2><div class="row"><label class="field"><span>Who uses this device?</span><select class="input" data-local="person">' + personOpts(store('person'), 'Shared / the wall display') + '</select></label></div>' +
+      '<p class="help">On your own phone, pick yourself: meals and groceries you add are marked as yours, and the meal planner knows who it’s talking to. Signed in with the household key. ' +
+      '<button class="faint" data-act="forget-key"><u>Sign this device out</u></button></p></section>' +
       '<div><button class="btn btn--dark" data-act="save-settings">Save settings</button></div></div>';
   }
 
   function hourOpts(sel) {
     var out = '';
     for (var h = 0; h <= 24; h++) out += '<option value="' + h + '"' + (h === +sel ? ' selected' : '') + '>' + (h === 24 ? 'Midnight' : fmtTime(new Date(2000, 0, 1, h, 0))) + '</option>';
-    return out + '';
+    return out;
   }
 
   function readSettingsForm() {
     var s = draftSettings, el = $('#view-settings');
-    $$('[data-s]', el).forEach(function (i) {
-      s[i.dataset.s] = i.dataset.s === 'weekStartsOn' || i.dataset.s === 'nightStart' || i.dataset.s === 'nightEnd' ? +i.value : i.value;
-    });
-    $$('[data-p]', el).forEach(function (i) { s.people[+i.dataset.p][i.dataset.k] = i.type === 'checkbox' ? i.checked : i.value; });
-    $$('[data-c]', el).forEach(function (i) {
-      var v = i.type === 'checkbox' ? i.checked : i.value;
-      s.calendars[+i.dataset.c][i.dataset.k] = v;
-    });
+    function val(i) { return i.type === 'checkbox' ? i.checked : i.hasAttribute('data-num') ? +i.value : i.value; }
+    $$('[data-s]', el).forEach(function (i) { s[i.dataset.s] = val(i); });
+    $$('[data-b]', el).forEach(function (i) { s.brightness[i.dataset.b] = val(i); });
+    $$('[data-p]', el).forEach(function (i) { s.people[+i.dataset.p][i.dataset.k] = val(i); });
+    $$('[data-c]', el).forEach(function (i) { s.calendars[+i.dataset.c][i.dataset.k] = val(i); });
+    $$('[data-r]', el).forEach(function (i) { s.rewards[+i.dataset.r][i.dataset.k] = i.dataset.k === 'stars' ? +i.value : i.value; });
+    s.groceryReminder = s.groceryReminder || { enabled: false, day: 4, people: [] };
+    $$('[data-g]', el).forEach(function (i) { s.groceryReminder[i.dataset.g] = val(i); });
   }
 
   function settingsClick(e) {
-    var b = e.target.closest('[data-act],[data-del-person],[data-del-cal],[data-loc-pick]');
+    var b = e.target.closest('[data-act],[data-del-person],[data-del-cal],[data-del-reward],[data-loc-pick],[data-slotchk],[data-gp]');
     if (!b || !draftSettings) return;
     readSettingsForm();
     var s = draftSettings;
+    if (b.dataset.slotchk) {
+      var si = s.mealSlots.indexOf(b.dataset.slotchk);
+      if (si > -1 && s.mealSlots.length > 1) s.mealSlots.splice(si, 1); else if (si < 0) s.mealSlots.push(b.dataset.slotchk);
+      return drawSettings();
+    }
+    if (b.dataset.gp) {
+      var gi = s.groceryReminder.people.indexOf(b.dataset.gp);
+      if (gi > -1) s.groceryReminder.people.splice(gi, 1); else s.groceryReminder.people.push(b.dataset.gp);
+      return drawSettings();
+    }
+    if (b.dataset.delReward != null) { s.rewards.splice(+b.dataset.delReward, 1); return drawSettings(); }
     if (b.dataset.delPerson != null) { s.people.splice(+b.dataset.delPerson, 1); return drawSettings(); }
     if (b.dataset.delCal != null) { s.calendars.splice(+b.dataset.delCal, 1); return drawSettings(); }
     if (b.dataset.locPick != null) { s.location = JSON.parse(b.dataset.locPick); return drawSettings(); }
@@ -726,6 +828,19 @@
         var palette = ['#2F6BFF', '#E4007C', '#00A36C', '#FFB000', '#8A4DFF', '#FF6B2C', '#00A3C4'];
         s.people.push({ name: '', color: palette[s.people.length % palette.length], stars: false });
         return drawSettings();
+      case 'add-reward':
+        s.rewards.push({ emoji: '🎁', title: '', stars: 10 });
+        return drawSettings();
+      case 'set-pin':
+        var cur = $('[data-pin="current"]'), np = $('[data-pin="pin"]');
+        api('PUT', '/api/pin', { current: cur ? cur.value : '', pin: np.value }).then(function (d) {
+          s.hasPin = d.hasPin;
+          unlockedUntil = Date.now() + 5 * 60 * 1000;
+          toast(d.hasPin ? 'PIN saved' : 'PIN removed');
+          drawSettings();
+          loadState();
+        }, function (err) { toast(err.message); });
+        return;
       case 'add-cal':
         s.calendars.push({ name: '', url: '', color: '#2F6BFF', person: null, hidden: false });
         return drawSettings();
@@ -756,6 +871,369 @@
           return loadState().then(function () { loadWeather(); return loadEvents(true); }).then(function () { if (S.view === 'settings') renderSettings(); });
         }, function (err) { toast(err.message); });
     }
+  }
+
+  // ---------------------------------------------------------------- Parent lock
+  // On a locked screen (the wall display), kids can look and tick things off, but adding, editing
+  // and deleting, rewards and Settings ask for the parent PIN. Phones aren't locked unless you
+  // turn it on for them too.
+  var unlockedUntil = 0;
+  function isLockedScreen() {
+    return !!(S.settings && S.settings.hasPin) && (store('lockScreen') === true || (store('lockScreen') == null && /HomeHubKiosk/.test(navigator.userAgent)));
+  }
+  function guard(fn) {
+    if (!isLockedScreen() || Date.now() < unlockedUntil) return fn();
+    var digits = '';
+    function pad() {
+      return '<h2>Parent PIN</h2><div class="pin-dots">' + [0, 1, 2, 3, 4, 5, 6, 7].slice(0, Math.max(4, digits.length)).map(function (i) {
+        return '<i class="' + (i < digits.length ? 'is-on' : '') + '"></i>';
+      }).join('') + '</div><div class="pin-msg faint" data-pin-msg>&nbsp;</div><div class="pin-pad">' +
+        ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'clear', '0', 'ok'].map(function (k) {
+          return '<button data-k="' + k + '" class="' + (k === 'ok' ? 'is-ok' : '') + '">' + (k === 'clear' ? '⌫' : k === 'ok' ? 'OK' : k) + '</button>';
+        }).join('') + '</div><div class="sheet-actions"><button class="btn" data-close>Cancel</button></div>';
+    }
+    sheet(pad(), function (root, close) {
+      root.addEventListener('click', function (e) {
+        var b = e.target.closest('[data-k]');
+        if (!b) return;
+        var k = b.dataset.k;
+        if (k === 'clear') digits = digits.slice(0, -1);
+        else if (k !== 'ok' && digits.length < 8) digits += k;
+        if (k === 'ok' || digits.length === 8) {
+          api('POST', '/api/pin', { pin: digits }).then(function () {
+            unlockedUntil = Date.now() + 5 * 60 * 1000;
+            close();
+            fn();
+          }, function (err) {
+            digits = '';
+            root.innerHTML = pad();
+            $('[data-pin-msg]', root).textContent = err.message;
+          });
+          return;
+        }
+        root.innerHTML = pad();
+      });
+    });
+  }
+
+  // ---------------------------------------------------------------- Celebrations
+  // Confetti (or a burst of stars) when a kid finishes a starred to-do; bigger for the daily goal.
+  function celebrate(color, big) {
+    var style = S.settings && S.settings.celebration;
+    if (style === 'off') return;
+    var c = document.createElement('canvas');
+    c.className = 'confetti';
+    c.width = window.innerWidth; c.height = window.innerHeight;
+    document.body.appendChild(c);
+    var ctx = c.getContext('2d'), parts = [], n = big ? 160 : 70;
+    var colors = [color, '#FFB000', '#2F6BFF', '#E4007C', '#00A36C', '#8A4DFF'];
+    for (var i = 0; i < n; i++) {
+      parts.push({
+        x: c.width / 2 + (Math.random() - 0.5) * c.width * (big ? 0.8 : 0.3), y: big ? -20 - Math.random() * c.height * 0.4 : c.height * 0.55,
+        vx: (Math.random() - 0.5) * (big ? 4 : 12), vy: big ? 2 + Math.random() * 3 : -8 - Math.random() * 9,
+        r: 5 + Math.random() * 7, a: Math.random() * 6.28, va: (Math.random() - 0.5) * 0.3, col: colors[i % colors.length]
+      });
+    }
+    function star(x, y, r) {
+      ctx.beginPath();
+      for (var k = 0; k < 10; k++) {
+        var rr = k % 2 ? r * 0.45 : r, ang = k * Math.PI / 5 - Math.PI / 2;
+        ctx.lineTo(x + rr * Math.cos(ang), y + rr * Math.sin(ang));
+      }
+      ctx.closePath(); ctx.fill();
+    }
+    var t0 = performance.now(), life = big ? 3200 : 1900;
+    (function frame(t) {
+      var k = (t - t0) / life;
+      ctx.clearRect(0, 0, c.width, c.height);
+      ctx.globalAlpha = Math.max(0, 1 - Math.max(0, k - 0.6) / 0.4);
+      parts.forEach(function (p) {
+        p.vy += 0.32; p.vx *= 0.99; p.x += p.vx; p.y += p.vy; p.a += p.va;
+        ctx.fillStyle = p.col;
+        if (style === 'stars') { star(p.x, p.y, p.r * 1.3); return; }
+        ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.a); ctx.fillRect(-p.r, -p.r / 2.5, p.r * 2, p.r / 1.25); ctx.restore();
+      });
+      if (k < 1) requestAnimationFrame(frame); else c.remove();
+    })(t0);
+  }
+
+  // ---------------------------------------------------------------- Stars & rewards
+  function kids() { return people().filter(function (p) { return p.stars; }); }
+  function renderStars() {
+    var goal = S.settings.dailyStarGoal || 0, rewards = S.settings.rewards || [];
+    if (!kids().length) return '<div class="empty">Turn on <b>Stars</b> for a person in Settings to start a star chart.</div>';
+    return '<div class="lanes">' + kids().map(function (p) {
+      var d = S.starDetail[p.id] || { today: 0, week: 0, month: 0, total: 0, balance: 0 };
+      var pct = goal ? Math.min(100, Math.round(d.today / goal * 100)) : 0;
+      return '<section class="lane stars-card" style="--c:' + p.color + '"><div class="lane-head">' + avatar(p, 44) +
+        '<div><b>' + esc(p.name) + '</b><small>' + d.total + ' earned all time</small></div>' +
+        '<span class="lane-stars num big">' + icon('star', 26, true) + ' ' + d.balance + '</span></div>' +
+        (goal ? '<div class="goal"><div class="row" style="justify-content:space-between"><span class="label">Today</span><b class="num">' + d.today + ' / ' + goal + (d.today >= goal ? ' 🎉' : '') + '</b></div>' +
+          '<div class="t-bar"><i style="width:' + pct + '%;background:' + p.color + '"></i></div></div>' : '') +
+        '<div class="star-periods"><div><b class="num">' + d.today + '</b><span>today</span></div><div><b class="num">' + d.week + '</b><span>this week</span></div><div><b class="num">' + d.month + '</b><span>this month</span></div></div>' +
+        (rewards.length ? '<div class="label" style="margin:14px 2px 8px">Rewards</div>' + rewards.map(function (r) {
+          var can = d.balance >= r.stars;
+          return '<div class="reward' + (can ? '' : ' is-far') + '"><span class="todo-emoji">' + esc(r.emoji) + '</span><div class="todo-text"><div class="todo-title">' + esc(r.title) + '</div>' +
+            '<div class="todo-meta">' + r.stars + '★' + (can ? '' : ' · ' + (r.stars - d.balance) + ' to go') + '</div></div>' +
+            (can ? '<button class="btn btn--sm" data-redeem="' + esc(r.id) + '" data-for="' + p.id + '">Redeem</button>' : '') + '</div>';
+        }).join('') : '<p class="help" style="margin-top:12px">Add rewards (like “Movie night · 20★”) in Settings.</p>') +
+        '</section>';
+    }).join('') + '</div>';
+  }
+  function redeem(personId, rewardId) {
+    var r = (S.settings.rewards || []).filter(function (x) { return x.id === rewardId; })[0], p = person(personId);
+    guard(function () {
+      if (!confirm('Spend ' + r.stars + ' of ' + p.name + '’s stars on “' + r.title + '”?')) return;
+      api('POST', '/api/redeem', { person: personId, reward: rewardId }).then(function () {
+        celebrate(p.color, true);
+        toast(esc(p.name) + ' redeemed <b>' + esc(r.title) + '</b>!');
+        loadState();
+      }, function (e) { toast(e.message); });
+    });
+  }
+
+  // ---------------------------------------------------------------- Meals
+  var MEAL_SLOTS = [['breakfast', 'Breakfast'], ['lunch', 'Lunch'], ['dinner', 'Dinner'], ['snack', 'Snack']];
+  function mealSlots() {
+    var on = (S.settings && S.settings.mealSlots) || ['dinner'];
+    return MEAL_SLOTS.filter(function (s) { return on.indexOf(s[0]) > -1; });
+  }
+  function mealWeekStart() { return weekStart(S.mealAnchor); }
+  function loadMeals() {
+    var a = mealWeekStart();
+    return Promise.all([
+      api('GET', '/api/meals?from=' + ymd(a) + '&to=' + ymd(addDays(a, 6))),
+      api('GET', '/api/groceries')
+    ]).then(function (r) {
+      S.meals = r[0].meals;
+      S.groceries = r[1].items;
+      if (S.view === 'meals') renderMeals();
+    });
+  }
+
+  function renderMeals() {
+    var el = $('#view-meals'), a = mealWeekStart(), slots = mealSlots();
+    var head = '<div class="cal-head"><h1>Meals</h1>' +
+      (S.settings.assistant ? '<button class="btn btn--dark" data-act="ask">' + icon('chat', 20) + ' Ask the meal planner</button>' : '') +
+      '<button class="icon-btn" data-meal-step="-1" aria-label="Previous week">' + icon('left') + '</button>' +
+      '<button class="btn btn--sm" data-meal-step="0">This week</button>' +
+      '<button class="icon-btn" data-meal-step="1" aria-label="Next week">' + icon('right') + '</button></div>';
+    if (!S.meals) { el.innerHTML = head + '<div class="empty">Loading…</div>'; loadMeals().catch(function (e) { toast(e.message); }); return; }
+
+    var rows = '';
+    for (var i = 0; i < 7; i++) {
+      var d = addDays(a, i), key = ymd(d);
+      rows += '<div class="meal-day' + (sameDay(d, new Date()) ? ' is-today' : '') + '"><div class="meal-date"><small>' + DAYS[d.getDay()].slice(0, 3) + '</small><b>' + d.getDate() + '</b></div>' +
+        '<div class="meal-slots" style="grid-template-columns:repeat(' + slots.length + ',minmax(0,1fr))">' + slots.map(function (s) {
+          var list = S.meals.filter(function (m) { return m.date === key && m.slot === s[0]; });
+          return '<div class="meal-cell">' + (slots.length > 1 ? '<span class="label">' + s[1] + '</span>' : '') +
+            list.map(function (m) {
+              return '<button class="meal" data-meal="' + m.id + '"><b>' + esc(m.title) + '</b>' + (m.notes ? '<small>' + esc(m.notes) + '</small>' : m.recipe_url ? '<small>Recipe</small>' : '') + '</button>';
+            }).join('') +
+            '<button class="meal-add" data-meal-add="' + key + '|' + s[0] + '">' + (list.length ? '+' : '+ ' + s[1]) + '</button></div>';
+        }).join('') + '</div></div>';
+    }
+
+    var open = (S.groceries || []).filter(function (g) { return !g.done; }), done = (S.groceries || []).filter(function (g) { return g.done; });
+    var groceries = '<section class="card groceries"><div class="row" style="justify-content:space-between"><h2>Groceries</h2><span class="faint">' + open.length + ' to buy</span></div>' +
+      '<form class="row grocery-add" data-grocery-form><input class="input" name="item" placeholder="Add an item" autocomplete="off"><button class="btn btn--dark btn--sm">Add</button></form>' +
+      open.map(groceryRow).join('') + done.map(groceryRow).join('') +
+      (done.length ? '<button class="btn btn--sm" data-act="clear-groceries" style="margin-top:10px">Clear checked</button>' : '') +
+      (!open.length && !done.length ? '<div class="empty" style="margin-top:10px">Nothing on the list.</div>' : '') + '</section>';
+
+    el.innerHTML = head + '<div class="meals-wrap"><div class="meal-week">' + rows + '</div>' + groceries + '</div>';
+  }
+  function groceryRow(g) {
+    return '<div class="todo grocery' + (g.done ? ' is-done' : '') + '" style="--c:#1E9E62">' +
+      '<button class="todo-check" data-grocery="' + g.id + '" aria-label="Got it"><span style="color:#fff">' + icon('tick', 20) + '</span></button>' +
+      '<button class="todo-text" data-grocery="' + g.id + '"><div class="todo-title">' + esc(g.name) + (g.qty ? ' <span class="faint">· ' + esc(g.qty) + '</span>' : '') + '</div>' +
+      (g.note ? '<div class="todo-meta">' + esc(g.note) + '</div>' : '') + '</button>' +
+      '<button class="todo-edit" data-grocery-del="' + g.id + '" aria-label="Remove">×</button></div>';
+  }
+  function toggleGrocery(id) {
+    var g = (S.groceries || []).filter(function (x) { return x.id === id; })[0];
+    if (!g) return;
+    g.done = !g.done;
+    renderMeals();
+    api('PUT', '/api/groceries/' + id, { done: g.done }).then(loadState, function (e) { toast(e.message); loadMeals(); });
+  }
+
+  function showMeal(id) {
+    var m = S.meals.filter(function (x) { return x.id === id; })[0];
+    if (!m) return;
+    var d = fromYmd(m.date);
+    sheet('<div class="label">' + DAYS[d.getDay()] + ', ' + MONTHS[d.getMonth()] + ' ' + d.getDate() + ' · ' + m.slot + '</div><h2 style="margin-top:6px">' + esc(m.title) + '</h2>' +
+      (m.notes ? '<p style="font-size:17px">' + esc(m.notes) + '</p>' : '') +
+      (m.recipe_url ? '<p class="muted" style="margin-top:8px;word-break:break-all">' + esc(m.recipe_url) + '</p>' : '') +
+      (m.ingredients && m.ingredients.length ? '<div class="label" style="margin:14px 0 6px">Ingredients</div><ul class="ingredients">' + m.ingredients.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>' : '') +
+      '<div class="sheet-actions"><button class="btn btn--danger" data-act="del">Delete</button><span class="spacer"></span>' +
+      (m.ingredients && m.ingredients.length ? '<button class="btn" data-act="shop">Add to groceries</button>' : '') +
+      '<button class="btn" data-act="edit">Edit</button><button class="btn btn--dark" data-close>Close</button></div>', function (root, close) {
+      root.addEventListener('click', function (e) {
+        var b = e.target.closest('[data-act]');
+        if (!b) return;
+        if (b.dataset.act === 'edit') { close(); guard(function () { editMeal(m); }); }
+        if (b.dataset.act === 'shop') { close(); pickGroceries(m); }
+        if (b.dataset.act === 'del') {
+          guard(function () {
+            if (!confirm('Remove ' + m.title + ' from the plan?')) return;
+            api('DELETE', '/api/meals/' + m.id).then(function () { close(); toast('Removed'); loadMeals(); loadState(); });
+          });
+        }
+      });
+    });
+  }
+
+  function editMeal(existing, preset) {
+    var m = existing ? JSON.parse(JSON.stringify(existing)) : { date: preset.date, slot: preset.slot, title: '', recipe_url: '', notes: '', ingredients: [] };
+    function body() {
+      return '<h2>' + (existing ? 'Edit meal' : 'Add a meal') + '</h2><div class="form">' +
+        '<div class="row"><label class="field"><span>Recipe link (optional)</span><input class="input" data-f="recipe_url" value="' + esc(m.recipe_url || '') + '" placeholder="https://…" autocomplete="off"></label>' +
+        '<button class="btn" data-act="read" style="align-self:flex-end">Read recipe</button></div>' +
+        '<label class="field"><span>Meal</span><input class="input" data-f="title" maxlength="120" value="' + esc(m.title) + '" placeholder="Tacos"></label>' +
+        '<div class="row"><label class="field"><span>Day</span><input class="input" type="date" data-f="date" value="' + m.date + '"></label>' +
+        '<label class="field"><span>Which meal</span><select class="input" data-f="slot">' + MEAL_SLOTS.map(function (s) {
+          return '<option value="' + s[0] + '"' + (m.slot === s[0] ? ' selected' : '') + '>' + s[1] + '</option>';
+        }).join('') + '</select></label></div>' +
+        '<label class="field"><span>Note</span><input class="input" data-f="notes" value="' + esc(m.notes || '') + '" placeholder="Double it for leftovers"></label>' +
+        '<label class="field"><span>Ingredients (one per line)</span><textarea class="input" rows="5" data-f="ingredients">' + esc((m.ingredients || []).join('\n')) + '</textarea></label>' +
+        '</div><div class="sheet-actions"><button class="btn" data-close>Cancel</button><button class="btn btn--dark" data-act="save">Save</button></div>';
+    }
+    sheet(body(), function (root, close) {
+      function read() {
+        $$('[data-f]', root).forEach(function (i) {
+          m[i.dataset.f] = i.dataset.f === 'ingredients' ? i.value.split('\n').map(function (x) { return x.trim(); }).filter(Boolean) : i.value;
+        });
+      }
+      root.addEventListener('click', function (e) {
+        var b = e.target.closest('[data-act]');
+        if (!b) return;
+        read();
+        if (b.dataset.act === 'read') {
+          if (!m.recipe_url) return toast('Paste a recipe link first');
+          b.disabled = true; b.textContent = 'Reading…';
+          api('GET', '/api/recipe?url=' + encodeURIComponent(m.recipe_url)).then(function (d) {
+            if (d.recipe.title && !m.title) m.title = d.recipe.title;
+            if (d.recipe.ingredients.length) m.ingredients = d.recipe.ingredients;
+            root.innerHTML = body();
+            toast(d.recipe.found ? 'Found ' + d.recipe.ingredients.length + ' ingredients' : 'No recipe details on that page; add them by hand');
+          }, function (err) { toast(err.message); root.innerHTML = body(); });
+          return;
+        }
+        if (b.dataset.act === 'save') {
+          var payload = { meal: { date: m.date, slot: m.slot, title: m.title, recipe_url: m.recipe_url || null, notes: m.notes || null, ingredients: m.ingredients } };
+          (existing ? api('PUT', '/api/meals/' + existing.id, payload) : api('POST', '/api/meals', payload)).then(function (d) {
+            close();
+            loadMeals(); loadState();
+            if (!existing && d.meal.ingredients.length) pickGroceries(d.meal);
+            else toast('Saved');
+          }, function (err) { toast(err.message); });
+        }
+      });
+    });
+  }
+
+  // "Which of these do you already have?" — tick off what's in the house, the rest goes on the list.
+  function pickGroceries(m) {
+    var have = {};
+    function body() {
+      return '<h2>Shopping for ' + esc(m.title) + '</h2><p class="help" style="margin-bottom:12px">Tap what you already have. The rest goes on the grocery list.</p>' +
+        '<div class="pick-list">' + m.ingredients.map(function (x, i) {
+          return '<button class="pick' + (have[i] ? ' is-have' : '') + '" data-i="' + i + '"><span>' + (have[i] ? '✓ Have it' : 'Need') + '</span>' + esc(x) + '</button>';
+        }).join('') + '</div><div class="sheet-actions"><button class="btn" data-close>Skip</button><button class="btn btn--dark" data-act="add">Add ' +
+        m.ingredients.filter(function (_, i) { return !have[i]; }).length + ' to groceries</button></div>';
+    }
+    sheet(body(), function (root, close) {
+      root.addEventListener('click', function (e) {
+        var b = e.target.closest('[data-i],[data-act]');
+        if (!b) return;
+        if (b.dataset.i != null) { have[b.dataset.i] = !have[b.dataset.i]; root.innerHTML = body(); return; }
+        var items = m.ingredients.filter(function (_, i) { return !have[i]; }).map(function (x) { return { name: x }; });
+        api('POST', '/api/groceries', { items: items, meal_id: m.id }).then(function (d) {
+          close();
+          toast('Added ' + d.added.length + ' to groceries' + (d.already_on_list.length ? ' (' + d.already_on_list.length + ' already there)' : ''));
+          loadMeals(); loadState();
+        }, function (err) { toast(err.message); });
+      });
+    });
+  }
+
+  // ---------------------------------------------------------------- Meal planner chat
+  var chatLog = store('chatLog') || [];
+  function openChat() {
+    function body() {
+      return '<h2>Meal planner</h2><div class="chat" data-chat>' +
+        (chatLog.length ? chatLog.map(function (m) { return '<div class="bubble ' + m.who + '">' + esc(m.text) + '</div>'; }).join('') :
+          '<div class="bubble them">Send me a meal idea or paste a recipe link. I’ll find an open night, check what you already have, and put the rest on the grocery list.</div>') +
+        '</div><form class="row grocery-add" data-chat-form><input class="input" name="msg" placeholder="Tacos Thursday, or a recipe link" autocomplete="off"><button class="btn btn--dark">Send</button></form>' +
+        '<div class="sheet-actions"><button class="btn btn--sm" data-act="new-chat">New conversation</button><span class="spacer"></span><button class="btn" data-close>Close</button></div>';
+    }
+    sheet(body(), function (root) {
+      function scroll() { var c = $('[data-chat]', root); if (c) c.scrollTop = c.scrollHeight; }
+      scroll();
+      root.addEventListener('click', function (e) {
+        if (e.target.closest('[data-act="new-chat"]')) {
+          chatLog = []; store('chatLog', chatLog); root.innerHTML = body();
+          api('DELETE', '/api/assistant').catch(function () {});
+        }
+      });
+      root.addEventListener('submit', function (e) {
+        e.preventDefault();
+        var input = $('[name="msg"]', root), text = input.value.trim();
+        if (!text) return;
+        chatLog.push({ who: 'me', text: text });
+        root.innerHTML = body();
+        $('[data-chat]', root).insertAdjacentHTML('beforeend', '<div class="bubble them is-typing">…</div>');
+        scroll();
+        api('POST', '/api/assistant', { message: text, today: today() }).then(function (d) {
+          chatLog.push({ who: 'them', text: d.reply });
+        }, function (err) {
+          chatLog.push({ who: 'them', text: 'Sorry: ' + err.message });
+        }).then(function () {
+          chatLog = chatLog.slice(-40);
+          store('chatLog', chatLog);
+          root.innerHTML = body();
+          scroll();
+          var i = $('[name="msg"]', root); if (i) i.focus();
+          S.meals = null; loadMeals(); loadState();
+        });
+      });
+      var i = $('[name="msg"]', root); if (i) i.focus();
+    });
+  }
+
+  // ---------------------------------------------------------------- Sleep & brightness
+  // The Home Hub kiosk app (kiosk/) exposes window.HomeHubNative to drive the real backlight.
+  var native = window.HomeHubNative || null;
+  function brightnessNow() {
+    var b = (S.settings && S.settings.brightness) || { mode: 'off' };
+    if (b.mode === 'off') return 100;
+    var h = new Date().getHours();
+    if (isNightHour()) return b.night;
+    return h >= b.eveningStart ? b.evening : b.day;
+  }
+  var lastLevel = null;
+  function applyBrightness() {
+    var b = (S.settings && S.settings.brightness) || { mode: 'off' };
+    var sleeping = $('#night').classList.contains('is-on');
+    if (native && b.mode === 'auto' && !sleeping) {
+      if (lastLevel !== 'auto') { try { native.setAutoBrightness(true); } catch (e) { /* older app */ } lastLevel = 'auto'; }
+      $('#dimmer').style.opacity = 0;
+      return;
+    }
+    var level = sleeping ? Math.min(brightnessNow(), (S.settings.brightness || {}).night || 15) : brightnessNow();
+    if (native) {
+      if (lastLevel !== level) { try { native.setBrightness(level / 100); } catch (e) { /* older app */ } lastLevel = level; }
+      $('#dimmer').style.opacity = 0;
+    } else {
+      // No backlight control in a plain browser: darken the page instead.
+      $('#dimmer').style.opacity = String(Math.max(0, (100 - level) / 100 * 0.85));
+    }
+  }
+  function sleepNow() {
+    S.sleepManual = true;
+    S.nightWokenUntil = 0;
+    updateNight();
   }
 
   // ================================================================ UI plumbing
@@ -791,6 +1269,7 @@
     if (view === 'calendar') loadEvents().catch(function () {});
     if (view === 'settings') $('#view-settings').dataset.mounted = '';
     if (view === 'todos') S.allTasks = null;
+    if (view === 'meals') S.meals = null;
     render();
     $('#view-' + view).scrollTop = 0;
   }
@@ -803,7 +1282,7 @@
     clearTimeout(hold.timer);
     if (!row) return;
     hold.x = e.clientX; hold.y = e.clientY;
-    hold.timer = setTimeout(function () { hold.fired = true; editTodo(findTask(row.dataset.hold)); }, 600);
+    hold.timer = setTimeout(function () { hold.fired = true; guard(function () { editTodo(findTask(row.dataset.hold)); }); }, 600);
   });
   document.addEventListener('pointermove', function (e) {
     if (Math.abs(e.clientX - hold.x) + Math.abs(e.clientY - hold.y) > 12) clearTimeout(hold.timer);
@@ -815,12 +1294,29 @@
     if (hold.fired) { hold.fired = false; return; }
     var b = e.target.closest('button, [data-ev], [data-day]');
     if (!b) return;
-    if (b.dataset.go) return go(b.dataset.go);
+    if (b.dataset.go) return b.dataset.go === 'settings' ? guard(function () { go('settings'); }) : go(b.dataset.go);
     if (b.dataset.ev) return showEvent(b.dataset.ev);
     if (b.closest('#sheetLayer')) return;
     if (b.dataset.done) return toggleDone(b.dataset.done);
-    if (b.dataset.edit) return editTodo(findTask(b.dataset.edit));
-    if (b.dataset.act === 'add-todo') return editTodo(null);
+    if (b.dataset.edit) return guard(function () { editTodo(findTask(b.dataset.edit)); });
+    if (b.dataset.act === 'add-todo') return guard(function () { editTodo(null); });
+    if (b.dataset.act === 'sleep') return sleepNow();
+    if (b.dataset.redeem) return redeem(b.dataset.for, b.dataset.redeem);
+    if (b.dataset.meal) return showMeal(b.dataset.meal);
+    if (b.dataset.mealAdd) { var mp = b.dataset.mealAdd.split('|'); return guard(function () { editMeal(null, { date: mp[0], slot: mp[1] }); }); }
+    if (b.dataset.mealStep != null) {
+      S.mealAnchor = +b.dataset.mealStep === 0 ? dayStart(new Date()) : addDays(S.mealAnchor, 7 * +b.dataset.mealStep);
+      S.meals = null;
+      return renderMeals();
+    }
+    if (b.dataset.act === 'ask') return openChat();
+    if (b.dataset.grocery) return toggleGrocery(b.dataset.grocery);
+    if (b.dataset.groceryDel) {
+      return api('DELETE', '/api/groceries/' + b.dataset.groceryDel).then(function () { loadMeals(); loadState(); }, function (err) { toast(err.message); });
+    }
+    if (b.dataset.act === 'clear-groceries') {
+      return api('DELETE', '/api/groceries?done=1').then(function () { loadMeals(); }, function (err) { toast(err.message); });
+    }
     if (b.dataset.todoMode) { S.todoMode = b.dataset.todoMode; return render(); }
     if (b.dataset.calMode) { S.calMode = b.dataset.calMode; store('calMode', S.calMode); render(); return loadEvents().catch(function () {}); }
     if (b.dataset.calStep != null) return stepCalendar(+b.dataset.calStep);
@@ -838,6 +1334,26 @@
     if (b.closest('#view-settings')) return settingsClick(e);
   });
 
+  document.addEventListener('change', function (e) {
+    var i = e.target.closest('[data-local]');
+    if (!i) return;
+    store(i.dataset.local, i.type === 'checkbox' ? i.checked : (i.value || null));
+    toast('Saved for this device');
+  });
+
+  document.addEventListener('submit', function (e) {
+    var f = e.target.closest('[data-grocery-form]');
+    if (!f) return;
+    e.preventDefault();
+    var v = f.item.value.trim();
+    if (!v) return;
+    api('POST', '/api/groceries', { items: [{ name: v }] }).then(function (d) {
+      if (d.already_on_list.length) toast(esc(v) + ' is already on the list');
+      loadMeals().then(function () { var i = $('[data-grocery-form] input'); if (i) i.focus(); });
+      loadState();
+    }, function (err) { toast(err.message); });
+  });
+
   // ================================================================ wall-display behaviour
   function isNightHour() {
     if (!S.settings) return false;
@@ -846,10 +1362,19 @@
     return a < b ? h >= a && h < b : h >= a || h < b;
   }
   function updateNight() {
-    var on = isNightHour() && Date.now() > S.nightWokenUntil;
-    $('#night').classList.toggle('is-on', on);
+    var style = (S.settings && S.settings.sleepStyle) || 'dim';
+    var on = S.sleepManual || (style !== 'off' && isNightHour() && Date.now() > S.nightWokenUntil);
+    var night = $('#night');
+    night.classList.toggle('is-on', on);
+    night.classList.toggle('is-clock', on && style === 'clock');
+    if (on && style === 'clock') {
+      var n = new Date();
+      night.innerHTML = '<div class="night-clock"><b>' + fmtTime(n).replace(/ (AM|PM)/, '') + '</b><span>' + DAYS[n.getDay()] + ', ' + MONTHS[n.getMonth()] + ' ' + n.getDate() + '</span></div>';
+    } else if (!on) night.innerHTML = '';
+    applyBrightness();
   }
   $('#night').addEventListener('click', function () {
+    S.sleepManual = false;
     S.nightWokenUntil = Date.now() + 2 * 60 * 1000; // tap to wake for two minutes
     updateNight();
   });
@@ -884,7 +1409,7 @@
       S.eventsRange = null;
     }
     render();
-    loadState().then(function () { return loadEvents(true); }).catch(function (e) { if (e.message !== 'locked') toast(e.message); });
+    loadState().then(function () { updateNight(); return loadEvents(true); }).catch(function (e) { if (e.message !== 'locked') toast(e.message); });
     setInterval(tick, 15 * 1000);
     setInterval(function () { if (S.view !== 'settings') loadState().catch(function () {}); }, 60 * 1000);
     setInterval(function () { loadEvents(true).catch(function () {}); }, 5 * 60 * 1000);

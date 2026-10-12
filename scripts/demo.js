@@ -57,6 +57,9 @@ export function demoFeed(name) {
 
 export async function seedDemo(path, port) {
   var t = ymd(day(0));
+  function meal(d, title, url, notes, ingredients) {
+    return { id: randomUUID(), date: ymd(day(d)), slot: 'dinner', title: title, recipe_url: url, notes: notes, ingredients: ingredients, created_by: 'sam', created_at: new Date().toISOString() };
+  }
   function task(title, emoji, assignee, schedule, extra) {
     return Object.assign({ id: randomUUID(), title: title, emoji: emoji, assignee: assignee, slot: null, stars: 0, schedule: schedule, notes: null, archived: false, created_at: new Date().toISOString() }, extra || {});
   }
@@ -80,6 +83,17 @@ export async function seedDemo(path, port) {
     settings: {
       familyName: 'The Millers', timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Chicago',
       location: { name: 'Chicago, Illinois', lat: 41.85, lon: -87.65 }, units: 'fahrenheit', weekStartsOn: 0, nightStart: 22, nightEnd: 6,
+      mealSlots: ['dinner'],
+      dailyStarGoal: 5,
+      celebration: 'confetti',
+      sleepStyle: 'clock',
+      brightness: { mode: 'schedule', day: 100, evening: 70, night: 15, eveningStart: 19 },
+      rewards: [
+        { id: 'movie-night', title: 'Pick the movie', emoji: '🍿', stars: 15 },
+        { id: 'late-bedtime', title: '30 min later bedtime', emoji: '🌙', stars: 25 },
+        { id: 'ice-cream', title: 'Ice cream trip', emoji: '🍦', stars: 40 }
+      ],
+      groceryReminder: { enabled: true, day: 4, people: ['chris', 'sam'] },
       people: [
         { id: 'chris', name: 'Chris', color: '#2F6BFF', stars: false },
         { id: 'sam', name: 'Sam', color: '#E4007C', stars: false },
@@ -92,6 +106,17 @@ export async function seedDemo(path, port) {
       ]
     },
     tasks: tasks,
+    meals: [
+      meal(0, 'Sheet-pan chicken fajitas', 'https://example.com/fajitas', 'Double the peppers', ['1.5 lb chicken breast', '3 bell peppers', '1 onion', '8 flour tortillas', 'Fajita seasoning', 'Sour cream']),
+      meal(1, 'Spaghetti and meatballs', null, null, ['1 lb spaghetti', '1 lb ground beef', 'Marinara sauce', 'Parmesan']),
+      meal(2, 'Leftovers night', null, 'Grandparents arrive', []),
+      meal(4, 'Homemade pizza', null, 'Kids pick toppings', ['Pizza dough', 'Mozzarella', 'Pepperoni'])
+    ],
+    groceries: ['Bell peppers|3', 'Flour tortillas|8', 'Sour cream|', 'Mozzarella|2 bags', 'Milk|1 gal', 'Bananas|'].map(function (x, i) {
+      var p = x.split('|');
+      return { id: randomUUID(), name: p[0], qty: p[1] || null, note: null, meal_id: null, done: false, added_by: 'sam', created_at: new Date(Date.now() + i).toISOString() };
+    }),
+    redemptions: [],
     completions: [
       { task_id: tasks[0].id, occ: t, done_by: 'ava', day: t, stars: 1, at: new Date().toISOString() },
       { task_id: tasks[4].id, occ: t, done_by: 'leo', day: t, stars: 1, at: new Date().toISOString() },

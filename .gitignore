@@ -5,3 +5,10 @@ node_modules/
 .env.local
 *.log
 .DS_Store
+
+# Android kiosk build output
+kiosk/.gradle/
+kiosk/build/
+kiosk/app/build/
+kiosk/local.properties
+kiosk/*.apk

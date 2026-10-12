@@ -41,8 +41,9 @@ test('settings: validation, and calendar addresses never leave the server', asyn
   got.body.settings.calendars[0].name = 'Family (renamed)';
   await call('PUT', '/api/settings', { settings: got.body.settings });
   var stored = JSON.parse(readFileSync(join(dir, 'db.json'), 'utf8'));
-  assert.equal(stored.settings.calendars[0].url, 'https://calendar.google.com/secret/basic.ics');
-  assert.equal(stored.settings.calendars[0].name, 'Family (renamed)');
+  var saved = stored.settings[0].value;
+  assert.equal(saved.calendars[0].url, 'https://calendar.google.com/secret/basic.ics');
+  assert.equal(saved.calendars[0].name, 'Family (renamed)');
 });
 
 test('to-dos: create, tick off with stars, undo, edit, delete', async function () {

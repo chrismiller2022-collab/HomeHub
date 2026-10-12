@@ -1,8 +1,9 @@
 // Vercel entry point. vercel.json rewrites /api/<anything> to /api/index?path=<anything>, so this
 // rebuilds the original path whether or not the platform hands us the rewritten URL.
+import { waitUntil } from '@vercel/functions';
 import { createApi } from '../lib/api.js';
 
-var handle = createApi(process.env);
+var handle = createApi(process.env, { waitUntil: waitUntil });
 
 function restorePath(request) {
   var url = new URL(request.url);

@@ -16,18 +16,22 @@
       <button class="rail-item" data-go="today"><span class="rail-ico" data-icon="home"></span><span>Today</span></button>
       <button class="rail-item" data-go="calendar"><span class="rail-ico" data-icon="calendar"></span><span>Calendar</span></button>
       <button class="rail-item" data-go="todos"><span class="rail-ico" data-icon="check"></span><span>To-dos</span></button>
+      <button class="rail-item" data-go="meals"><span class="rail-ico" data-icon="meals"></span><span>Meals</span></button>
       <button class="rail-item" data-go="settings"><span class="rail-ico" data-icon="gear"></span><span>Settings</span></button>
+      <button class="rail-sleep" data-act="sleep" aria-label="Sleep the screen"><span class="rail-ico" data-icon="moon"></span></button>
       <div class="rail-clock" id="railClock"></div>
     </nav>
     <main class="views" id="views">
       <section class="view" id="view-today"></section>
       <section class="view" id="view-calendar"></section>
       <section class="view" id="view-todos"></section>
+      <section class="view" id="view-meals"></section>
       <section class="view" id="view-settings"></section>
     </main>
   </div>
   <div class="sheet-layer" id="sheetLayer"></div>
   <div class="toasts" id="toasts" aria-live="polite"></div>
+  <div class="dimmer" id="dimmer"></div>
   <div class="night" id="night"></div>
   <div class="offline" id="offline">Offline · showing last data</div>
 

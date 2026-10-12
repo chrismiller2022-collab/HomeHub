@@ -1,7 +1,7 @@
 # Home Hub
 
 A Skylight-style family wall display for a cheap Android photo frame (or any tablet, or a
-browser). It shows:
+browser), plus the same app on everyone's phone. It has:
 
 - **Every Google Calendar you care about, merged**: yours, a partner's, a shared family calendar, a
   kid's school calendar, even from different Google accounts. Repeating events, moved and cancelled
@@ -10,21 +10,42 @@ browser). It shows:
 - **To-dos, recurring and one-time**, per person or "Anyone": daily, every N days, weekly on chosen
   days, every other week, monthly (including "last day of the month"), yearly, with optional
   start and end dates. One-time to-dos can have a due date and turn red when overdue. Group them
-  by morning, afternoon or evening. Kids can earn stars.
-- Today view (agenda, a "now" line, tomorrow's preview, weather), week and month calendars,
-  dimming at night, and a settings page you use from your phone.
+  by morning, afternoon or evening.
+- **Stars for kids**: starred to-dos earn stars with a confetti (or star-shower) animation, a
+  daily goal with a bigger celebration, today / this week / this month totals, and rewards the
+  kids can spend stars on ("Pick the movie · 15★").
+- **Meal planning**: a week of breakfasts, lunches, dinners and snacks (you choose which). Paste
+  a recipe link and it reads the ingredients. Then tap what you already have, and the rest goes on
+  the **grocery list**. Tonight's dinner shows on the Today screen.
+- **A meal-planning assistant you can text** (powered by Claude): send it a meal idea or a recipe
+  link. It tells you which days are open, asks which day and which meal, checks which ingredients
+  you already have, then plans the meal and adds the rest to the grocery list. The same assistant
+  is in the app, under Meals → Ask the meal planner.
+- **A weekly grocery-order reminder by text** (Thursdays, or whichever day you pick) with the
+  list and the week's meals.
+- **Parent lock**: with a PIN set, kids can look and tick things off on the wall display, but
+  adding, editing, rewards and Settings need the PIN.
+- **Sleep and brightness**: dims, or shows only a dim clock, overnight; brightness changes through
+  the day; tap the moon to sleep it any time. With the included kiosk app, this controls the
+  frame's real backlight, and "Automatic" uses its light sensor if it has one.
+- Weather, a week and month calendar, and one shared, live copy for every screen. Changes on a
+  phone show on the frame within a minute.
 
 It's built to run on the frames in
 [wesbos/photo-frame-dashboard](https://github.com/wesbos/photo-frame-dashboard). That repo is the
-guide for taking over the frame itself (ADB, root, WebView upgrade, kiosk app). Its dashboard
-uses mock data, so this project supplies the real data and to-dos. No code is copied from it
-(that repo has no license). See [docs/device-setup.md](docs/device-setup.md) for the frame side.
+guide for taking over the frame itself (ADB, root, WebView upgrade). Its dashboard uses mock data,
+so this project supplies the real data. No code is copied from it (that repo has no license).
+See [docs/device-setup.md](docs/device-setup.md) for the frame side.
 
 ![Today view](docs/screenshots/today.png)
 
-| Week | Month | To-dos |
+| Meals and groceries | Stars and rewards | Week |
 | --- | --- | --- |
-| ![](docs/screenshots/week.png) | ![](docs/screenshots/month.png) | ![](docs/screenshots/todos.png) |
+| ![](docs/screenshots/meals.png) | ![](docs/screenshots/stars.png) | ![](docs/screenshots/week.png) |
+
+| Meal planner | What do you already have? | To-dos |
+| --- | --- | --- |
+| ![](docs/screenshots/chat.png) | ![](docs/screenshots/groceries-pick.png) | ![](docs/screenshots/todos.png) |
 
 ## Try it now, on your computer
 
@@ -46,17 +67,22 @@ npm test            # recurrence rules, calendar parsing (DST, moved/cancelled e
 ## How it fits together
 
 ```
- Photo frame (kiosk WebView) ─┐
- Your phone's browser ────────┼──>  Vercel: public/ (the app) + api/ (one function)
-                              │         ├─ fetches each Google Calendar's secret iCal feed
-                              │         └─ reads and writes to-dos in Supabase (Postgres)
+ Photo frame (Home Hub kiosk app) ─┐
+ Everyone's phones and laptops ────┼──>  Vercel: public/ (the app) + api/ (one function)
+ Text messages (Twilio) ───────────┘         ├─ reads each Google Calendar's secret iCal feed
+                                             ├─ stores to-dos, meals, groceries, stars in Supabase
+                                             └─ runs the meal-planning assistant (Claude API)
 ```
 
-- **Calendars are read-only.** Add and edit events in Google Calendar as usual; the display picks
-  up changes within about 5–10 minutes. Because it reads each calendar's *secret iCal address*,
-  there's no Google OAuth app to set up and no tokens that expire.
-- **The frame never holds secrets.** Calendar addresses and the database key stay on the server.
-  The display only knows a household key (`ACCESS_KEY`), which you enter once.
+- **One shared household.** Every screen (the frame, phones, laptops) uses the same household
+  key, so everyone sees and edits the same to-dos, meals and grocery list. On each phone, choose
+  **Settings → This device → Who uses this device?** so what you add is marked as yours and the
+  assistant knows who it's talking to. There are no separate passwords per person.
+- **Calendars are read-only for now.** Add and edit events in Google Calendar as usual (on your
+  phone, as today); the display picks up changes within about 5–10 minutes. Because it reads each
+  calendar's *secret iCal address*, there's no Google developer setup and no logins that expire.
+- **The frame never holds secrets.** Calendar addresses, phone numbers and the API keys stay on
+  the server. The display only knows the household key, which you enter once.
 - **No build step.** `public/` is plain HTML/CSS/JS, written for the old Android WebView on these
   frames (Chrome/WebView 84+; the wesbos guide upgrades them to 106).
 
@@ -84,8 +110,13 @@ so it stays awake once the frame is up.
    | `ACCESS_KEY` | a long random string, e.g. from `openssl rand -hex 16`. It's the household key. |
    | `SUPABASE_URL` | Project URL from step 1 |
    | `SUPABASE_SERVICE_ROLE_KEY` | service_role key from step 1 |
+   | `ANTHROPIC_API_KEY` | *(for the meal planner)* from [console.anthropic.com](https://console.anthropic.com) → API keys |
+   | `PUBLIC_URL` | *(for texting)* `https://<your-app>.vercel.app`, no trailing slash |
+   | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM` | *(for texting)* see step 5 |
+   | `CRON_SECRET` | *(for the grocery reminder)* another random string. Vercel's daily job sends it automatically. |
 
-3. Deploy. `https://<your-app>.vercel.app/api/health` should say `"storage":"supabase"`.
+3. Deploy. `https://<your-app>.vercel.app/api/health` should say `"storage":"supabase"`, and
+   `"assistant":true` / `"sms":true` once those are set up.
 
 ### 3. Open it on your phone and fill in Settings
 
@@ -122,17 +153,68 @@ Repeat for every calendar and every family member's account. Notes:
 - Holidays: add Google's "Holidays in United States" calendar to your account, then use its
   address the same way. It's public, so use **Public address in iCal format** instead.
 
+### 5. Texting the meal planner (optional)
+
+The assistant works in the app as soon as `ANTHROPIC_API_KEY` is set. To also **text** it, and to
+get the grocery-order reminder by text, you need a phone number from
+[Twilio](https://www.twilio.com):
+
+1. Sign up, buy a local number with SMS (a dollar or so a month, plus a fraction of a cent per
+   text).
+2. **Register it for texting in the US** (Twilio Console → Messaging → Regulatory Compliance → A2P
+   10DLC → "Sole proprietor" or "Low-volume standard"). US carriers block texts from unregistered
+   numbers. Registration costs a few dollars and approval can take several days, so start early.
+   A toll-free number with "toll-free verification" is the alternative.
+3. Put the Account SID, Auth Token and the number (`+15551234567`) into Vercel as `TWILIO_ACCOUNT_SID`,
+   `TWILIO_AUTH_TOKEN` and `TWILIO_FROM`, and set `PUBLIC_URL`. Redeploy.
+4. In Twilio, open the number → Messaging configuration → "A message comes in": **Webhook**,
+   `https://<your-app>.vercel.app/api/sms`, HTTP POST.
+5. In Home Hub **Settings → People**, add the mobile number of everyone who may text it. Texts
+   from any other number are ignored.
+6. In **Settings → Meals and groceries**, turn on the grocery reminder, pick the day and who gets
+   it. It goes out each morning around 8–9 a.m. US Central (the daily job runs at 14:00 UTC; change
+   `crons` in `vercel.json` to move it).
+
+An example exchange:
+
+> **You:** https://www.allrecipes.com/recipe/…/chicken-tikka-masala/
+> **Home Hub:** Chicken tikka masala, nice! Dinner is open Tuesday the 13th, Thursday the 15th and
+> Saturday the 17th (Wednesday is busy, with soccer until 6). Which night? Do you already have
+> chicken thighs, garam masala, canned tomatoes, heavy cream or basmati rice?
+> **You:** Thursday. We have rice and garam masala
+> **Home Hub:** Done: tikka masala Thursday for dinner. Added chicken thighs, canned tomatoes and
+> heavy cream to the grocery list.
+
+**Cost:** the assistant uses Claude Opus 5.5 at low effort. Planning a meal takes a few short
+back-and-forth messages, which typically costs a few cents. To spend less, set
+`HUB_AGENT_MODEL=claude-haiku-5-5` in Vercel; it's much cheaper, but not as good at
+follow-up questions. If Claude declines a message for safety reasons, the request is retried
+automatically on Anthropic's recommended fallback model (the API's `fallbacks: "default"`
+option).
+
 ## Using it
 
-- **Today**: tap an event for details. Tap the circle to tick off a to-do; you can undo from the
-  toast. "Anyone" to-dos ask who did it, so the right kid gets the stars.
+- **Today**: tonight's dinner, the day's events and to-dos, weather. Tap an event for details.
+  Tap the circle to tick off a to-do; you can undo from the toast. "Anyone" to-dos ask who did it,
+  so the right kid gets the stars.
 - **Calendar**: week and month views. Tap a month day to jump to its week. The chips at the top
   hide or show calendars on this screen only.
-- **To-dos**: **Add to-do** to create one. **Press and hold** a to-do to edit or delete it. The
-  **All** tab lists everything, including repeating to-dos that aren't due today and when each
-  is due next.
-- The display returns to Today after 3 idle minutes, dims overnight (tap to wake for 2 minutes),
-  reloads itself each night to pick up updates, and keeps showing the last data if Wi-Fi drops.
+- **To-dos**: **Add to-do** to create one. **Press and hold** a to-do to edit or delete it. **All**
+  lists everything, including repeating to-dos that aren't due today. **Stars** shows each kid's
+  stars and rewards; **Redeem** spends them.
+- **Meals**: tap **+** on a day to add a meal. Paste a recipe link and tap **Read recipe** to fill
+  in the name and ingredients. After saving, tap what you already have; the rest goes on the
+  grocery list. Tap a meal to see it, move it, or shop for it again. The grocery list is on the
+  right: add items, tick them off in the store, then **Clear checked**.
+- **Settings** (easiest from a phone): people and their phone numbers, calendars, meals to plan,
+  grocery reminder, star goal and rewards, sleep and brightness, the parent PIN, and who uses
+  this device.
+- **Parent lock**: set a PIN in Settings. The kiosk app locks the frame automatically; any other
+  screen can be locked with "Lock this screen". Once the PIN is entered, the screen stays unlocked
+  for 5 minutes.
+- **Sleep**: the moon in the sidebar sleeps the screen; a tap wakes it. At night it sleeps on its
+  own (dim, or a dim clock), and it returns to Today after 3 idle minutes. It also reloads itself
+  each night to pick up updates, and keeps showing the last data if Wi-Fi drops.
 
 ## How to-dos repeat
 
@@ -151,9 +233,11 @@ ticked off today stays on screen, crossed out, until midnight. Deleting a to-do 
 
 ## API
 
-All routes need the header `x-hub-key: <ACCESS_KEY>` except `/api/health`. See the top of
-[`lib/api.js`](lib/api.js) for the full list (`/api/state`, `/api/events`, `/api/tasks`, …).
-This also makes it easy to add to-dos from an iOS Shortcut, Home Assistant, or a script later.
+All routes need the header `x-hub-key: <ACCESS_KEY>` except `/api/health`, the Twilio webhook
+(checked with Twilio's signature) and the daily job (checked with `CRON_SECRET`). See the top of
+[`lib/api.js`](lib/api.js) for the full list (`/api/state`, `/api/events`, `/api/tasks`,
+`/api/meals`, `/api/groceries`, `/api/assistant`, …). That makes it easy to hook up an iOS Shortcut
+("add milk to the grocery list"), Home Assistant, or a script later.
 
 ## Project layout
 
@@ -162,16 +246,23 @@ public/            the app (index.html, app.js, app.css) — no build step
 api/index.js       Vercel function; every /api/* route goes here
 lib/calendar.js    iCal fetch, recurrence expansion, time zones, de-duplication
 lib/schedule.js    to-do recurrence rules
+lib/meals.js       meal plan and grocery list
+lib/recipes.js     reads recipe links (schema.org Recipe data)
+lib/agent.js       the meal-planning assistant (Claude API tool loop)
+lib/sms.js         Twilio: signature check, sending
 lib/store.js       Supabase or local JSON file storage
-lib/api.js         routes, validation, household key check
+lib/api.js         routes, validation, household key, parent PIN, stars
 supabase/schema.sql
+kiosk/             Android kiosk app for the frame (built by GitHub Actions)
 scripts/           local dev server and demo data
 docs/              device setup, screenshots
 ```
 
 ## Ideas for later
 
-- Add and edit calendar events from the frame (needs a Google OAuth app).
-- Photo slideshow when idle (Google Photos' API no longer allows reading albums, so this
-  would use a shared folder or upload instead).
-- Meal planning, grocery list, star rewards to spend.
+- **Adding calendar events from the app.** Today you add events in Google Calendar itself. Writing
+  to Google from Home Hub needs a small Google Cloud setup (a service account that your family
+  calendar is shared with); ask and it can be added.
+- Photo slideshow when idle (Google Photos' API no longer allows reading albums, so this would use
+  a shared folder or uploads instead).
+- Grocery list sharing to Instacart / Walmart; recipe box of favourites; leftovers tracking.

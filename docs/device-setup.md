@@ -45,29 +45,42 @@ mismatch.
    HTTPS.
 3. **Correct date, time and time zone** on the frame (Settings → Date & time). The display uses
    the frame's clock to decide what "today" is.
-4. **A full-screen browser that starts on boot.** Pick one:
-   - **The wesbos kiosk app** (`dashboard/kiosk/`): a small full-screen WebView with the screen
-     kept on. Change `DEFAULT_URL` in `MainActivity.java` to your kiosk address, build with
-     `dashboard/kiosk/build.sh`, then `adb install -r kiosk/build/homehq.apk`. To exit, hold two
-     fingers still for 1.5 s. Or skip the rebuild and launch it with your address once:
-     ```sh
-     adb shell am start -a android.intent.action.VIEW \
-       -d 'https://<your-app>.vercel.app/?key=<ACCESS_KEY>' -n com.wesbos.homehq/.MainActivity
-     ```
-     The key is then remembered, so later launches of the default address still sign in. You
-     still need `DEFAULT_URL` to point at your app.
-   - **Fully Kiosk Browser** (sideload the APK; it uses the system WebView, so step 1 still
-     applies): set the Start URL to your kiosk address and turn on "Start on boot" and "Keep
-     screen on".
-   - Set your kiosk app as the default launcher (the wesbos guide covers launcher changes), so a
-     power cut or reboot comes back to Home Hub.
+4. **The Home Hub kiosk app** (`kiosk/` in this repo). It's a full-screen WebView made for this:
+   - Controls the **real backlight** for the brightness schedule and night mode, and uses the
+     frame's **light sensor** for "Automatic" brightness if it has one (many frames don't; then
+     the schedule is the way to go).
+   - Starts on boot and can be the frame's **home screen**, so nothing else ever shows.
+   - Turns on the **parent lock** automatically (once a PIN is set in Settings).
+   - Keeps the screen on, hides the status and navigation bars, retries when Wi-Fi isn't up yet,
+     and restarts the page if it crashes.
+
+   Install it:
+   ```sh
+   # Download homehub-kiosk.apk from this repo's Releases -> "kiosk-latest" (GitHub builds it on
+   # every change to kiosk/), then with the frame connected over ADB:
+   adb install -r homehub-kiosk.apk
+   adb shell am start -a android.intent.action.VIEW \
+     -d 'https://<your-app>.vercel.app/?key=<ACCESS_KEY>' -n com.homehub.kiosk/.MainActivity
+   ```
+   Or just open the app on the frame: the first time, it asks for that address. Then press the
+   frame's Home button (or `adb shell input keyevent KEYCODE_HOME`) and choose **Home Hub →
+   Always** to make it the home screen. If the frame has no such prompt, the wesbos guide covers
+   changing the launcher.
+
+   To get back to Android: **hold two fingers still on the screen for 2 seconds**. That opens a
+   box to change the address, reload, or exit to Android settings.
+
+   Alternatives: the wesbos kiosk app (`dashboard/kiosk/`, change `DEFAULT_URL`) or Fully Kiosk
+   Browser. Both work, but brightness then falls back to dimming the page instead of the backlight.
 
 ## Check it on the frame
 
 - [ ] Today, Calendar and To-dos all load; the clock and date are right.
 - [ ] Ticking off a to-do on the frame shows on your phone within a minute, and the other way round.
 - [ ] Change an event in Google Calendar; it appears within ~10 minutes.
-- [ ] Night dimming starts at the hour set in Settings, and a tap wakes it.
+- [ ] Night mode starts at the hour set in Settings, and a tap wakes it. The moon button sleeps it.
+- [ ] Brightness drops in the evening (with the kiosk app, the backlight itself dims).
+- [ ] With a parent PIN set, adding a to-do on the frame asks for it.
 - [ ] Pull the power, plug it back in: it boots straight back into Home Hub.
 
 If the page is blank or stuck on "Household key", open the address with `?key=…` again. If it
@@ -78,6 +91,7 @@ won't load at all, the WebView version or the certificates (items 1–2) are the
 
 - Designed for 1280×800 (the 10.1" frames). It also adapts to other sizes and phones.
 - Big touch targets; press and hold a to-do to edit it (there's no right-click or hover).
+- Kid-proof: the parent lock keeps edits, rewards and Settings behind the PIN.
 - Returns to Today after 3 idle minutes; reloads itself after midnight to pick up updates.
 - Shows the last calendar data and an "Offline" badge if Wi-Fi drops; recovers on its own.
 - If the app fails to start (for example, right after a deploy), it reloads until it does.
