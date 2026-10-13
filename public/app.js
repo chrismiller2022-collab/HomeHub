@@ -92,6 +92,9 @@
     todayMeals: [],
     groceryCount: 0,
     sleepManual: false,
+    homeMode: store('homeMode') || 'day',
+    sports: [],
+    weekMeals: [],
     allTasks: null,
     pending: {},
     nightWokenUntil: 0,
@@ -203,7 +206,7 @@
     var from = addDays(dayStart(a), -10), to = addDays(dayStart(a), 45);
     var t = dayStart(new Date());
     if (t < from) from = addDays(t, -1);
-    if (addDays(t, 2) > to) to = addDays(t, 3);
+    if (addDays(t, 8) > to) to = addDays(t, 9);
     return { from: from, to: to };
   }
   function loadEvents(force) {
@@ -231,7 +234,7 @@
     if (!loc) { S.weather = null; return; }
     var u = 'https://api.open-meteo.com/v1/forecast?latitude=' + loc.lat + '&longitude=' + loc.lon +
       '&current=temperature_2m,weather_code&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max' +
-      '&temperature_unit=' + (S.settings.units === 'celsius' ? 'celsius' : 'fahrenheit') + '&timezone=auto&forecast_days=6';
+      '&temperature_unit=' + (S.settings.units === 'celsius' ? 'celsius' : 'fahrenheit') + '&timezone=auto&forecast_days=7';
     fetch(u).then(function (r) { return r.json(); }).then(function (d) {
       if (!d.current) return;
       S.weather = d;
@@ -273,7 +276,7 @@
     if (!w) return '';
     var d = w.daily;
     var out = '';
-    for (var i = 1; i < d.time.length; i++) {
+    for (var i = 1; i < Math.min(d.time.length, 6); i++) {
       var wx = WX[d.weather_code[i]] || ['🌡️'];
       out += '<div><span class="faint">' + DAYS[fromYmd(d.time[i]).getDay()].slice(0, 3) + '</span><b>' + wx[0] + '</b>' +
         Math.round(d.temperature_2m_max[i]) + '° <span class="faint">' + Math.round(d.temperature_2m_min[i]) + '°</span></div>';
@@ -320,15 +323,18 @@
   }
 
   function renderToday() {
+    if (S.homeMode === 'week') return renderWeekHome();
     var now = new Date(), tom = addDays(dayStart(now), 1);
     var el = $('#view-today');
     el.innerHTML =
       '<div class="head"><div class="today-date"><div class="label">' + esc(S.settings.familyName) + '</div>' +
-      '<h1>' + DAYS[now.getDay()] + '</h1><div class="sub">' + MONTHS[now.getMonth()] + ' ' + now.getDate() + '</div></div>' + weatherBlock() + '</div>' +
+      '<h1>' + DAYS[now.getDay()] + '</h1><div class="sub">' + MONTHS[now.getMonth()] + ' ' + now.getDate() + '</div></div>' +
+      '<div class="row" style="align-items:center;gap:22px">' + homeToggle() + weatherBlock() + '</div></div>' +
+      headsUpStrip(2, 4) +
       '<div class="today"><div>' + agenda(now) +
       '<div class="tomorrow"><div class="label" style="margin-bottom:8px">Tomorrow · ' + DAYS[tom.getDay()] + '</div>' + agenda(tom, true) + '</div>' +
       forecastBlock() + '</div>' +
-      '<div>' + todayMealsCard() + '<div class="card today-todos"><div class="row" style="justify-content:space-between;margin-bottom:12px"><h2 style="font-size:24px">To-dos</h2>' +
+      '<div>' + todayMealsCard() + sportsCompact() + '<div class="card today-todos"><div class="row" style="justify-content:space-between;margin-bottom:12px"><h2 style="font-size:24px">To-dos</h2>' +
       '<button class="btn btn--sm btn--dark" data-act="add-todo">' + icon('plus', 18) + 'Add</button></div>' + todoLanes(true) + '</div></div></div>';
   }
 
@@ -763,6 +769,16 @@
       (S.settingsSms ? 'Texting is set up.' : '<b>Texting isn’t set up yet</b>: add the Twilio settings in Vercel (see the README). Until then, add a weekly to-do like “Order groceries” on Thursdays.') + ' ' +
       (S.settingsAssistant ? 'The meal planner is on: family members can text it, or use “Ask the meal planner” on the Meals screen.' : '<b>The meal planner is off</b>: it needs ANTHROPIC_API_KEY in Vercel.') + '</p></section>' +
 
+      '<section class="card form"><h2>Sports teams</h2><p class="help">Shown as score tiles on the home screen, with live scores on game day. Data from ESPN.</p>' +
+      (s.sports || []).map(function (t, i) {
+        return '<div class="team-row"><b style="flex:1">' + esc(t.name) + '</b><span class="faint">' + esc(LEAGUE_NAMES[t.league] || t.league) + '</span>' +
+          '<button class="btn btn--sm btn--danger" data-del-team="' + i + '">Remove</button></div>';
+      }).join('') +
+      '<div class="row"><label class="field" style="flex:none;min-width:0;width:240px"><span>League</span><select class="input" data-team-league>' +
+      Object.keys(LEAGUE_NAMES).map(function (k) { return '<option value="' + k + '">' + LEAGUE_NAMES[k] + '</option>'; }).join('') + '</select></label>' +
+      '<label class="field"><span>Team</span><input class="input" data-team-q placeholder="Auburn, Bengals, Reds…"></label>' +
+      '<button class="btn" data-act="find-team" style="align-self:flex-end">Find</button></div><div class="choice" data-team-results></div></section>' +
+
       '<section class="card form"><h2>Stars and rewards</h2><div class="row">' +
       '<label class="field"><span>Daily star goal (per kid)</span><input class="input" type="number" min="0" max="50" data-s="dailyStarGoal" data-num value="' + (s.dailyStarGoal || 0) + '"></label>' +
       '<label class="field"><span>When a starred to-do is done</span><select class="input" data-s="celebration">' + opt('confetti', 'Confetti', s.celebration) + opt('stars', 'Shower of stars', s.celebration) + opt('off', 'No animation', s.celebration) + '</select></label></div>' +
@@ -786,6 +802,11 @@
       '<div><button class="btn btn--dark" data-act="save-settings">Save settings</button></div></div>';
   }
 
+  var LEAGUE_NAMES = {
+    'college-football': 'College football', nfl: 'NFL', 'mens-college-basketball': 'Men’s college basketball',
+    'womens-college-basketball': 'Women’s college basketball', nba: 'NBA', wnba: 'WNBA', mlb: 'MLB', nhl: 'NHL'
+  };
+
   function hourOpts(sel) {
     var out = '';
     for (var h = 0; h <= 24; h++) out += '<option value="' + h + '"' + (h === +sel ? ' selected' : '') + '>' + (h === 24 ? 'Midnight' : fmtTime(new Date(2000, 0, 1, h, 0))) + '</option>';
@@ -805,7 +826,7 @@
   }
 
   function settingsClick(e) {
-    var b = e.target.closest('[data-act],[data-del-person],[data-del-cal],[data-del-reward],[data-loc-pick],[data-slotchk],[data-gp]');
+    var b = e.target.closest('[data-act],[data-del-person],[data-del-cal],[data-del-reward],[data-del-team],[data-team-pick],[data-loc-pick],[data-slotchk],[data-gp]');
     if (!b || !draftSettings) return;
     readSettingsForm();
     var s = draftSettings;
@@ -820,6 +841,13 @@
       return drawSettings();
     }
     if (b.dataset.delReward != null) { s.rewards.splice(+b.dataset.delReward, 1); return drawSettings(); }
+    if (b.dataset.delTeam != null) { s.sports.splice(+b.dataset.delTeam, 1); return drawSettings(); }
+    if (b.dataset.teamPick) {
+      s.sports = s.sports || [];
+      s.sports.push(JSON.parse(b.dataset.teamPick));
+      toast('Added. Save settings to keep it.');
+      return drawSettings();
+    }
     if (b.dataset.delPerson != null) { s.people.splice(+b.dataset.delPerson, 1); return drawSettings(); }
     if (b.dataset.delCal != null) { s.calendars.splice(+b.dataset.delCal, 1); return drawSettings(); }
     if (b.dataset.locPick != null) { s.location = JSON.parse(b.dataset.locPick); return drawSettings(); }
@@ -828,6 +856,16 @@
         var palette = ['#2F6BFF', '#E4007C', '#00A36C', '#FFB000', '#8A4DFF', '#FF6B2C', '#00A3C4'];
         s.people.push({ name: '', color: palette[s.people.length % palette.length], stars: false });
         return drawSettings();
+      case 'find-team':
+        var lg = $('[data-team-league]').value, tq = $('[data-team-q]').value.trim();
+        api('GET', '/api/sports/search?league=' + encodeURIComponent(lg) + '&q=' + encodeURIComponent(tq)).then(function (d) {
+          var box = $('[data-team-results]');
+          box.innerHTML = d.teams.length ? d.teams.map(function (t) {
+            return '<button data-team-pick="' + esc(JSON.stringify({ league: lg, id: t.id, name: t.short || t.name })) + '">' +
+              (t.logo ? '<img src="' + esc(t.logo) + '" width="22" height="22" alt="" style="vertical-align:middle;margin-right:6px">' : '') + esc(t.name) + '</button>';
+          }).join('') : '<span class="faint">No match</span>';
+        }, function (err) { toast(err.message); });
+        return;
       case 'add-reward':
         s.rewards.push({ emoji: '🎁', title: '', stars: 10 });
         return drawSettings();
@@ -868,9 +906,192 @@
           toast('Settings saved');
           $('#view-settings').dataset.mounted = '';
           S.eventsRange = null;
-          return loadState().then(function () { loadWeather(); return loadEvents(true); }).then(function () { if (S.view === 'settings') renderSettings(); });
+          return loadState().then(function () { loadWeather(); loadSports().catch(function () {}); return loadEvents(true); }).then(function () { if (S.view === 'settings') renderSettings(); });
         }, function (err) { toast(err.message); });
     }
+  }
+
+  // ---------------------------------------------------------------- Sports
+  function loadSports() {
+    if (!S.settings || !(S.settings.sports || []).length) { S.sports = []; return Promise.resolve(); }
+    return api('GET', '/api/sports').then(function (d) {
+      S.sports = d.teams.filter(function (t) { return !t.error; });
+      if (S.view === 'today') render();
+    });
+  }
+  var SHORT_DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  function gameWhen(g) {
+    var d = new Date(g.date), t = dayStart(new Date()), days = Math.round((dayStart(d) - t) / 864e5);
+    var day = days === 0 ? 'Today' : days === 1 ? 'Tomorrow' : days < 7 ? DAYS[d.getDay()] : SHORT_DAYS[d.getDay()] + ', ' + MONTHS[d.getMonth()].slice(0, 3) + ' ' + d.getDate();
+    return { day: day, time: g.timeKnown ? fmtTime(d) : 'Time TBD', days: days };
+  }
+  function oppName(g) { return (g.opponent.rank ? '#' + g.opponent.rank + ' ' : '') + g.opponent.name; }
+  function logoImg(src, size, cls) {
+    return src ? '<img class="' + (cls || 'team-logo') + '" src="' + esc(src) + '" width="' + size + '" height="' + size + '" alt="" loading="lazy">' : '';
+  }
+
+  function sportsTile(t) {
+    var tm = t.team, g = t.live || t.next, color = tm.color || '#1D1B18';
+    var chip = '<div class="tile-chip" style="color:' + color + '">' + logoImg(tm.logo, 20, 'chip-logo') + esc(tm.short) +
+      (tm.standing ? ' · ' + esc(tm.standing.replace(/^(\d+\w*) in /, '$1 ')) : '') + (tm.record ? ' · ' + esc(tm.record) : '') + '</div>';
+    if (!g) {
+      return '<section class="tile sport" style="--tc:' + color + '">' + chip +
+        '<div class="sport-off">' + logoImg(tm.logo, 64) + '<div><b>No games scheduled</b><span class="muted">Season over · see you next year</span></div></div>' +
+        lastLine(t) + '</section>';
+    }
+    var home = g.home, us = { name: tm.short, logo: tm.logo }, them = { name: oppName(g), logo: g.opponent.logo };
+    var left = home ? them : us, right = home ? us : them;
+    var mid = '<div class="mu-names"><b>' + esc(left.name) + '</b><span>' + (g.neutral ? 'vs' : 'at') + '</span><b>' + esc(right.name) + '</b></div>';
+    var info;
+    if (g.state === 'in') {
+      var ls = home ? g.them : g.us, rs = home ? g.us : g.them;
+      info = '<div class="mu-score num">' + esc(ls) + '<span>–</span>' + esc(rs) + '</div><div class="pill-row"><span class="pill-chip is-live">● LIVE · ' + esc(g.detail) + '</span>' +
+        (g.tv.length ? '<span class="pill-chip">' + esc(g.tv[0]) + '</span>' : '') + '</div>';
+    } else {
+      var w = gameWhen(g);
+      info = '<div class="pill-row"><span class="pill-chip">' + esc(w.day) + ' · ' + esc(w.time) + '</span>' +
+        (w.days > 1 && w.days < 30 ? '<span class="pill-chip"><i class="dot" style="background:var(--bad)"></i> in ' + w.days + ' days</span>' : '') +
+        (g.tv.length ? '<span class="pill-chip">' + esc(g.tv.join(' / ')) + '</span>' : '') + '</div>';
+    }
+    return '<section class="tile sport" style="--tc:' + color + '">' + chip +
+      '<div class="matchup">' + logoImg(left.logo, 64) + mid + logoImg(right.logo, 64) + '</div>' + info + lastLine(t) + '</section>';
+  }
+  function lastLine(t) {
+    var l = t.last;
+    if (!l) return '';
+    return '<div class="sport-last"><span class="res res-' + l.result + '">' + l.result + ' ' + esc(l.us) + '–' + esc(l.them) + '</span> ' +
+      (l.home ? 'vs ' : 'at ') + esc(oppName(l)) + '</div>';
+  }
+  // One line per team for the Day view: only when a game is live or within a week.
+  function sportsCompact() {
+    var rows = (S.sports || []).filter(function (t) {
+      var g = t.live || t.next;
+      return g && (t.live || gameWhen(g).days < 7);
+    }).map(function (t) {
+      var g = t.live || t.next, tm = t.team;
+      var text = g.state === 'in'
+        ? '<b class="num">' + esc(tm.abbr || tm.short) + ' ' + esc(g.us) + ' – ' + esc(g.them) + ' ' + esc(g.opponent.abbr) + '</b> <span class="pill-chip is-live">● ' + esc(g.detail) + '</span>'
+        : '<b>' + esc(tm.short) + (g.home ? ' vs ' : ' at ') + esc(oppName(g)) + '</b><small>' + esc(gameWhen(g).day + ' · ' + gameWhen(g).time) + (g.tv.length ? ' · ' + esc(g.tv[0]) : '') + '</small>';
+      return '<div class="sport-row" style="--tc:' + (tm.color || '#1D1B18') + '">' + logoImg(tm.logo, 36) + '<div>' + text + '</div>' + logoImg(g.opponent.logo, 28, 'team-logo opp') + '</div>';
+    });
+    return rows.length ? '<div class="card sport-compact">' + rows.join('') + '</div>' : '';
+  }
+
+  // ---------------------------------------------------------------- Heads up
+  // A few things worth knowing in the next `days` days: chores that aren't everyday, overdue
+  // to-dos, birthdays, rain, game days, grocery-order day.
+  function headsUp(days) {
+    var items = [], now = new Date(), t0 = dayStart(now);
+    function rel(d) {
+      var n = Math.round((dayStart(d) - t0) / 864e5);
+      return n === 0 ? (now.getHours() >= 15 ? 'tonight' : 'today') : n === 1 ? 'tomorrow' : DAYS[d.getDay()];
+    }
+    // Occasional chores (trash night, monthly bills), not the everyday or every-weekday ones.
+    function occasional(sc) {
+      return sc.type === 'monthly' || sc.type === 'yearly' || (sc.type === 'weekly' && (sc.days || []).length <= 2) || (sc.type === 'daily' && sc.every >= 3);
+    }
+    S.tasks.filter(function (x) { return !x.done && (x.overdue || occasional(x.schedule) || (x.schedule.type === 'once' && x.due && x.due <= ymd(addDays(t0, 1)))); })
+      .slice(0, 3).forEach(function (x) {
+        items.push({ icon: x.emoji || '✓', text: x.title, when: x.overdue ? 'overdue' : x.due && x.due > today() ? 'tomorrow' : now.getHours() >= 15 ? 'tonight' : 'today', hot: true });
+      });
+    for (var i = 0; i < days; i++) {
+      var d = addDays(t0, i);
+      eventsOn(d).allDay.forEach(function (ev) {
+        if (/birthday|bday|anniversary/i.test(ev.title) && ev.start === ymd(d)) items.push({ icon: '🎂', text: ev.title.replace(/'s birthday/i, '’s bday'), when: rel(d) });
+      });
+      var g = S.settings.groceryReminder;
+      if (g && g.enabled && d.getDay() === g.day) items.push({ icon: '🛒', text: 'Grocery order day', when: rel(d) + (S.groceryCount ? ' · ' + S.groceryCount + ' items' : '') });
+    }
+    (S.sports || []).forEach(function (t) {
+      var gm = t.live || t.next;
+      if (!gm) return;
+      var w = gameWhen(gm);
+      if (t.live) items.unshift({ icon: '🏈', text: t.team.short + ' ' + gm.us + '–' + gm.them, when: 'LIVE', hot: true });
+      else if (w.days < days) items.push({ icon: '🏈', text: t.team.short + (gm.home ? ' vs ' : ' at ') + gm.opponent.name, when: (w.days === 0 ? 'today' : w.day) + (gm.timeKnown ? ' ' + fmtTime(new Date(gm.date), true) : '') });
+    });
+    var wx = S.weather && S.weather.daily;
+    if (wx) {
+      for (var j = 0; j < Math.min(days, wx.time.length); j++) {
+        if (wx.precipitation_probability_max[j] >= 60) { items.push({ icon: '🌧️', text: 'Rain likely', when: rel(fromYmd(wx.time[j])) + ' · ' + wx.precipitation_probability_max[j] + '%' }); break; }
+      }
+    }
+    return items;
+  }
+  function headsUpStrip(days, max) {
+    var items = headsUp(days).slice(0, max);
+    if (!items.length) return '';
+    return '<section class="tile heads-up"><div class="hu-title"><b>Heads up,</b><span>' + items.length + ' thing' + (items.length > 1 ? 's' : '') + '</span></div><div class="hu-items">' +
+      items.map(function (x) {
+        return '<div class="hu' + (x.hot ? ' is-hot' : '') + '"><span class="hu-ico">' + esc(x.icon) + '</span><b>' + esc(x.text) + '</b><span class="hu-when">' + esc(x.when) + '</span></div>';
+      }).join('') + '</div></section>';
+  }
+
+  // ---------------------------------------------------------------- Home: week view
+  function greeting() {
+    var h = new Date().getHours();
+    return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
+  }
+  function homeToggle() {
+    return '<div class="seg home-seg"><button data-home-mode="day" class="' + (S.homeMode !== 'week' ? 'is-on' : '') + '">Day</button>' +
+      '<button data-home-mode="week" class="' + (S.homeMode === 'week' ? 'is-on' : '') + '">Week</button></div>';
+  }
+  function renderWeekHome() {
+    var now = new Date(), t0 = dayStart(now), end = addDays(t0, 6);
+    var evCount = 0, mealCount = 0, wx = S.weather && S.weather.daily;
+    var cols = '';
+    for (var i = 0; i < 7; i++) {
+      var d = addDays(t0, i), key = ymd(d), on = eventsOn(d);
+      evCount += on.timed.length + on.allDay.length;
+      var dinner = (S.weekMeals || []).filter(function (m) { return m.date === key; });
+      mealCount += dinner.length;
+      var w = wx ? wx.time.indexOf(key) : -1;
+      var games = (S.sports || []).map(function (t) {
+        var g = t.live || t.next;
+        if (!g || ymd(new Date(g.date)) !== key) return '';
+        return '<div class="g-game">' + logoImg(t.team.logo, 16, 'chip-logo') + esc(t.team.abbr || t.team.short) + (g.home ? ' vs ' : ' at ') + esc(g.opponent.abbr || g.opponent.name) +
+          (g.state === 'in' ? ' · LIVE' : g.timeKnown ? ' · ' + fmtTime(new Date(g.date), true) : '') + '</div>';
+      }).filter(Boolean);
+      var list = games.concat(on.allDay.map(function (ev) {
+        var c = evColor(ev);
+        return '<div class="g-all" style="background:' + c + ';color:' + inkOn(c) + '">' + esc(ev.title) + '</div>';
+      })).concat(on.timed.map(function (ev) {
+        return '<div class="g-ev"><i class="dot" style="background:' + evColor(ev) + '"></i><span>' + fmtTime(new Date(ev.start), true) + '</span> ' + esc(ev.title) + '</div>';
+      }));
+      cols += '<button class="g-day' + (i === 0 ? ' is-today' : '') + '" data-glance="' + key + '"><div class="g-head"><small>' + (i === 0 ? 'Today' : SHORT_DAYS[d.getDay()]) + '</small><b>' + d.getDate() + '</b>' +
+        (w > -1 ? '<span class="g-wx">' + (WX[wx.weather_code[w]] || ['🌡️'])[0] + ' ' + Math.round(wx.temperature_2m_max[w]) + '°</span>' : '') + '</div>' +
+        '<div class="g-list">' + list.slice(0, 4).join('') + (list.length > 4 ? '<div class="g-more">+' + (list.length - 4) + ' more</div>' : '') + (!list.length ? '<div class="g-free">Free</div>' : '') + '</div>' +
+        (dinner.length ? '<div class="g-meal">🍴 ' + esc(dinner.map(function (m) { return m.title; }).join(', ')) + '</div>' : '') + '</button>';
+    }
+    var cur = S.weather && S.weather.current;
+    var hello = '<section class="tile hello"><div class="row" style="justify-content:space-between;align-items:flex-start"><div class="tile-chip">' + icon('calendar', 16) + ' ' +
+      SHORT_DAYS[t0.getDay()] + ' ' + MONTHS[t0.getMonth()].slice(0, 3) + ' ' + t0.getDate() + ' – ' + SHORT_DAYS[end.getDay()] + ' ' + MONTHS[end.getMonth()].slice(0, 3) + ' ' + end.getDate() + '</div>' + homeToggle() + '</div>' +
+      '<div class="hello-time num">' + fmtTime(now).replace(/ (AM|PM)/, '') + '<small>' + fmtTime(now).slice(-2).toLowerCase() + '</small></div>' +
+      '<div class="hello-text"><b>' + greeting() + ',</b> here’s your week.</div>' +
+      '<div class="hello-stats">' + evCount + ' events · ' + mealCount + ' meals planned · ' + S.tasks.filter(function (x) { return !x.done; }).length + ' to-dos today' +
+      (cur ? ' · ' + Math.round(cur.temperature_2m) + '° ' + (WX[cur.weather_code] || ['', ''])[1].toLowerCase() : '') + '</div></section>';
+    var sports = (S.sports || []).map(sportsTile);
+    var row1 = [hello].concat(sports.slice(0, 2));
+    if (row1.length < 3) row1.push(starsTile());
+    $('#view-today').innerHTML = '<div class="home-week">' +
+      '<div class="tiles-3">' + row1.join('') + '</div>' +
+      '<section class="tile glance"><div class="glance-cols">' + cols + '</div></section>' +
+      headsUpStrip(7, 5) +
+      (sports.length > 2 ? '<div class="tiles-3">' + sports.slice(2).join('') + '</div>' : '') + '</div>';
+  }
+  function starsTile() {
+    var ks = kids();
+    if (!ks.length) return '';
+    return '<section class="tile stars-mini"><div class="tile-chip">' + icon('star', 16, true) + ' Stars this week</div>' + ks.map(function (p) {
+      var d = S.starDetail[p.id] || { week: 0, balance: 0 };
+      return '<div class="sm-row">' + avatar(p, 34) + '<b>' + esc(p.name) + '</b><span class="num">' + d.week + '★ this week</span><span class="faint num">' + d.balance + ' to spend</span></div>';
+    }).join('') + '</section>';
+  }
+  function loadWeekMeals() {
+    var t0 = dayStart(new Date());
+    return api('GET', '/api/meals?from=' + ymd(t0) + '&to=' + ymd(addDays(t0, 6))).then(function (d) {
+      S.weekMeals = d.meals.filter(function (m) { return m.slot === 'dinner' || mealSlots().length === 1 && m.slot === mealSlots()[0][0]; });
+      if (S.view === 'today' && S.homeMode === 'week') render();
+    });
   }
 
   // ---------------------------------------------------------------- Parent lock
@@ -1301,6 +1522,13 @@
     if (b.dataset.edit) return guard(function () { editTodo(findTask(b.dataset.edit)); });
     if (b.dataset.act === 'add-todo') return guard(function () { editTodo(null); });
     if (b.dataset.act === 'sleep') return sleepNow();
+    if (b.dataset.homeMode) {
+      S.homeMode = b.dataset.homeMode;
+      store('homeMode', S.homeMode);
+      if (S.homeMode === 'week') loadWeekMeals().catch(function () {});
+      return render();
+    }
+    if (b.dataset.glance) { S.calAnchor = fromYmd(b.dataset.glance); S.calMode = 'week'; return go('calendar'); }
     if (b.dataset.redeem) return redeem(b.dataset.for, b.dataset.redeem);
     if (b.dataset.meal) return showMeal(b.dataset.meal);
     if (b.dataset.mealAdd) { var mp = b.dataset.mealAdd.split('|'); return guard(function () { editMeal(null, { date: mp[0], slot: mp[1] }); }); }
@@ -1409,11 +1637,17 @@
       S.eventsRange = null;
     }
     render();
-    loadState().then(function () { updateNight(); return loadEvents(true); }).catch(function (e) { if (e.message !== 'locked') toast(e.message); });
+    loadState().then(function () { updateNight(); loadSports().catch(function () {}); if (S.homeMode === 'week') loadWeekMeals().catch(function () {}); return loadEvents(true); }).catch(function (e) { if (e.message !== 'locked') toast(e.message); });
     setInterval(tick, 15 * 1000);
     setInterval(function () { if (S.view !== 'settings') loadState().catch(function () {}); }, 60 * 1000);
     setInterval(function () { loadEvents(true).catch(function () {}); }, 5 * 60 * 1000);
     setInterval(loadWeather, 30 * 60 * 1000);
+    // Scores: every minute while a game is on, otherwise every 10 minutes.
+    (function sportsLoop() {
+      var live = (S.sports || []).some(function (t) { return t.live; });
+      setTimeout(function () { loadSports().catch(function () {}).then(sportsLoop); }, live ? 60 * 1000 : 10 * 60 * 1000);
+    })();
+    setInterval(function () { if (S.homeMode === 'week') loadWeekMeals().catch(function () {}); }, 5 * 60 * 1000);
     window.HUB_STARTED = true;
   }
   start();

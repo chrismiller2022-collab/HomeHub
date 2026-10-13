@@ -28,6 +28,13 @@ browser), plus the same app on everyone's phone. It has:
 - **Sleep and brightness**: dims, or shows only a dim clock, overnight; brightness changes through
   the day; tap the moon to sleep it any time. With the included kiosk app, this controls the
   frame's real backlight, and "Automatic" uses its light sensor if it has one.
+- **A Day / Week home screen.** Day: today's agenda, dinner, to-dos and a "Heads up" strip.
+  Week: a tile overview with the coming 7 days (events, weather, dinners, game days), your teams,
+  and what's coming up (birthdays, trash night, overdue to-dos, rain, grocery-order day).
+- **Sports tiles** for your teams (set to Auburn and Tennessee football; add any college football,
+  NFL, NBA, MLB, NHL or college basketball team in Settings): record, conference standing, last
+  result, next game with kickoff time and TV channel, and **live scores on game day**. Data comes
+  from ESPN's free public feed, no key needed.
 - Weather, a week and month calendar, and one shared, live copy for every screen. Changes on a
   phone show on the frame within a minute.
 
@@ -37,15 +44,15 @@ guide for taking over the frame itself (ADB, root, WebView upgrade). Its dashboa
 so this project supplies the real data. No code is copied from it (that repo has no license).
 See [docs/device-setup.md](docs/device-setup.md) for the frame side.
 
-![Today view](docs/screenshots/today.png)
+![Week view of the home screen](docs/screenshots/home-week.png)
 
-| Meals and groceries | Stars and rewards | Week |
+| Meals and groceries | Stars and rewards | Calendar week |
 | --- | --- | --- |
 | ![](docs/screenshots/meals.png) | ![](docs/screenshots/stars.png) | ![](docs/screenshots/week.png) |
 
-| Meal planner | What do you already have? | To-dos |
+| Home, Day view | What do you already have? | To-dos |
 | --- | --- | --- |
-| ![](docs/screenshots/chat.png) | ![](docs/screenshots/groceries-pick.png) | ![](docs/screenshots/todos.png) |
+| ![](docs/screenshots/today.png) | ![](docs/screenshots/groceries-pick.png) | ![](docs/screenshots/todos.png) |
 
 ## Try it now, on your computer
 
@@ -194,7 +201,9 @@ option).
 
 ## Using it
 
-- **Today**: tonight's dinner, the day's events and to-dos, weather. Tap an event for details.
+- **Today**: switch between **Day** and **Week** at the top. Day shows tonight's dinner, the
+  day's events and to-dos, weather, and this week's games. Week shows the tiles: tap a day to open
+  it in the calendar. Tap an event for details.
   Tap the circle to tick off a to-do; you can undo from the toast. "Anyone" to-dos ask who did it,
   so the right kid gets the stars.
 - **Calendar**: week and month views. Tap a month day to jump to its week. The chips at the top
@@ -248,6 +257,7 @@ lib/calendar.js    iCal fetch, recurrence expansion, time zones, de-duplication
 lib/schedule.js    to-do recurrence rules
 lib/meals.js       meal plan and grocery list
 lib/recipes.js     reads recipe links (schema.org Recipe data)
+lib/sports.js      team schedules, scores and records (ESPN public API)
 lib/agent.js       the meal-planning assistant (Claude API tool loop)
 lib/sms.js         Twilio: signature check, sending
 lib/store.js       Supabase or local JSON file storage

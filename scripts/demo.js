@@ -38,6 +38,7 @@ export function demoFeed(name) {
     { d: 0, s: '15:45', e: '16:30', title: 'Piano lesson', loc: "Ms. Park's studio" },
     { d: 0, s: '18:30', e: '19:30', title: 'Dinner at Grandma’s', loc: '12 Elm St' },
     { d: 1, s: '10:30', e: '11:15', title: 'Vet — Biscuit' },
+    { d: 1, allDay: true, title: 'Grandma’s birthday' },
     { d: 1, s: '19:00', e: '21:00', title: 'Book club' },
     { d: 2, allDay: true, days: 2, title: 'Grandparents visiting' },
     { d: 3, s: '13:00', e: '15:30', title: "Zoe's birthday party", loc: 'Pottery Place' },
