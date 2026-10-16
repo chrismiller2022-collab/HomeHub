@@ -115,7 +115,8 @@ so it stays awake once the frame is up.
    | Name | Value |
    | --- | --- |
    | `ACCESS_KEY` | a long random string, e.g. from `openssl rand -hex 16`. It's the household key. |
-   | `SUPABASE_URL` | Project URL from step 1 |
+   | `DATABASE_URL` | **Neon (simplest):** Vercel project → Storage → Create Database → Neon → connect. This sets it for you, and the tables create themselves on first use. |
+   | `SUPABASE_URL` | Or Supabase: project URL from step 1 |
    | `SUPABASE_SERVICE_ROLE_KEY` | service_role key from step 1 |
    | `ANTHROPIC_API_KEY` | *(for the meal planner)* from [console.anthropic.com](https://console.anthropic.com) → API keys |
    | `PUBLIC_URL` | *(for texting)* `https://<your-app>.vercel.app`, no trailing slash |
