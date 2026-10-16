@@ -386,3 +386,28 @@ h1, h2, h3, p { margin: 0; }
   .night-clock b { font-size: 80px; }
 }
 .team-row { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border: 2px solid var(--line); border-radius: 14px; background: var(--panel-2); }
+
+/* Home to-dos side by side, hourly weather, Weather tab */
+.lanes-home { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px 22px; align-items: start; }
+.today-todos .lane + .lane { margin-top: 0; }
+.today-todos .seg button { padding: 6px 12px; font-size: 15px; }
+.hourly { display: flex; gap: 6px; margin-top: 14px; overflow-x: auto; }
+.hourly div { flex: 1 0 52px; text-align: center; background: var(--panel); border-radius: 14px; padding: 8px 2px; font-size: 14px; box-shadow: var(--shadow); }
+.hourly b { display: block; font-size: 20px; margin: 2px 0; }
+.hourly .rain, .wx-day .rain { display: block; font-size: 12px; color: var(--ink-2); }
+.rain.is-wet { color: #2F6FB5; font-weight: 700; }
+.hourly--flat div { box-shadow: none; background: var(--bg); }
+.wx-top { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 16px; }
+.wx-now { display: flex; align-items: center; gap: 22px; }
+.wx-big-ico { font-size: 84px; line-height: 1; }
+.wx-now b { font-size: 72px; font-weight: 700; display: block; line-height: 1; }
+.wx-now small { color: var(--ink-2); font-size: 16px; }
+.wx-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.wx-facts small { display: block; color: var(--ink-2); font-size: 14px; }
+.wx-facts b { font-size: 24px; }
+.wx-day { display: grid; grid-template-columns: 70px 40px 64px 40px minmax(0, 1fr) 40px; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line, rgba(0,0,0,.07)); font-size: 18px; }
+.wx-day-ico { font-size: 24px; }
+.wx-day .rain { display: inline; }
+.wx-bar { position: relative; height: 8px; border-radius: 4px; background: var(--bg); }
+.wx-bar i { position: absolute; top: 0; bottom: 0; border-radius: 4px; background: linear-gradient(90deg, #6FA8DC, #F2B134); }
+@media (max-width: 700px) { .wx-top { grid-template-columns: 1fr; } .wx-day { grid-template-columns: 54px 32px 56px 34px minmax(0, 1fr) 34px; font-size: 16px; } }

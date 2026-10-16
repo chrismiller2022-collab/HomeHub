@@ -40,6 +40,7 @@
 
   var ICONS = {
     home: '<path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/>',
+    sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
     calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
     check: '<rect x="3" y="3" width="18" height="18" rx="4"/><path d="M7.5 12l3 3 6-6"/>',
     gear: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
@@ -234,8 +235,10 @@
     var loc = S.settings && S.settings.location;
     if (!loc) { S.weather = null; return; }
     var u = 'https://api.open-meteo.com/v1/forecast?latitude=' + loc.lat + '&longitude=' + loc.lon +
-      '&current=temperature_2m,weather_code&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max' +
-      '&temperature_unit=' + (S.settings.units === 'celsius' ? 'celsius' : 'fahrenheit') + '&timezone=auto&forecast_days=7';
+      '&current=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code,is_day' +
+      '&hourly=temperature_2m,precipitation_probability,weather_code,is_day' +
+      '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,sunrise,sunset,uv_index_max,wind_speed_10m_max' +
+      '&temperature_unit=' + (S.settings.units === 'celsius' ? 'celsius' : 'fahrenheit') + (S.settings.units === 'celsius' ? '' : '&wind_speed_unit=mph') + '&timezone=auto&forecast_days=10';
     fetch(u).then(function (r) { return r.json(); }).then(function (d) {
       if (!d.current) return;
       S.weather = d;
@@ -253,6 +256,7 @@
     if (S.view === 'calendar') renderCalendar();
     if (S.view === 'todos') renderTodos();
     if (S.view === 'meals') renderMeals();
+    if (S.view === 'weather') renderWeather();
     if (S.view === 'settings' && !$('#view-settings').dataset.mounted) renderSettings();
   }
 
@@ -271,6 +275,57 @@
       '<small>' + wx[1] + ' · H ' + Math.round(d.temperature_2m_max[0]) + '° L ' + Math.round(d.temperature_2m_min[0]) + '°' +
       (d.precipitation_probability_max[0] >= 20 ? ' · ' + d.precipitation_probability_max[0] + '% rain' : '') + '</small></div>' +
       '<span class="wx-ico">' + wx[0] + '</span></div>';
+  }
+  function wxIcon(code, isDay) {
+    if (!isDay && (code === 0 || code === 1)) return '🌙';
+    if (!isDay && code === 2) return '☁️';
+    return (WX[code] || ['🌡️'])[0];
+  }
+  function hourLabel(s) {
+    var h = +s.slice(11, 13);
+    return h === 0 ? '12a' : h === 12 ? '12p' : h > 12 ? (h - 12) + 'p' : h + 'a';
+  }
+  function hourlyBlock(n, cls) {
+    var w = S.weather, hr = w && w.hourly;
+    if (!hr) return '';
+    var key = w.current.time.slice(0, 13), i0 = 0;
+    for (var i = 0; i < hr.time.length; i++) if (hr.time[i].slice(0, 13) === key) { i0 = i; break; }
+    var out = '';
+    for (var j = i0; j < Math.min(hr.time.length, i0 + n); j++) {
+      var p = hr.precipitation_probability[j];
+      out += '<div><span class="faint">' + (j === i0 ? 'Now' : hourLabel(hr.time[j])) + '</span><b>' + wxIcon(hr.weather_code[j], hr.is_day[j]) + '</b>' +
+        Math.round(hr.temperature_2m[j]) + '°<small class="rain' + (p >= 30 ? ' is-wet' : '') + '">' + (p >= 10 ? '💧' + p + '%' : '&nbsp;') + '</small></div>';
+    }
+    return '<div class="hourly ' + (cls || '') + '">' + out + '</div>';
+  }
+  function renderWeather() {
+    var el = $('#view-weather'), w = S.weather;
+    var head = '<div class="head"><div><h1>Weather</h1><div class="sub">' + esc((S.settings.location && S.settings.location.name) || '') + '</div></div></div>';
+    if (!S.settings.location) { el.innerHTML = head + '<div class="empty">Set your town in <b>Settings</b> to see the weather.</div>'; return; }
+    if (!w || !w.hourly) { el.innerHTML = head + '<div class="empty">Loading…</div>'; return; }
+    var c = w.current, d = w.daily, wx = WX[c.weather_code] || ['🌡️', ''];
+    var t = function (s) { return fmtTime(new Date(s)); };
+    var lo = Math.min.apply(null, d.temperature_2m_min), hi = Math.max.apply(null, d.temperature_2m_max);
+    var days = d.time.map(function (day, i) {
+      var a = (d.temperature_2m_min[i] - lo) / (hi - lo || 1) * 100, b = (d.temperature_2m_max[i] - lo) / (hi - lo || 1) * 100;
+      var p = d.precipitation_probability_max[i];
+      return '<div class="wx-day"><b>' + (i === 0 ? 'Today' : DAYS[fromYmd(day).getDay()].slice(0, 3)) + '</b><span class="wx-day-ico">' + wxIcon(d.weather_code[i], 1) + '</span>' +
+        '<span class="rain' + (p >= 30 ? ' is-wet' : '') + '">' + (p >= 10 ? '💧' + p + '%' : '') + '</span>' +
+        '<span class="faint num">' + Math.round(d.temperature_2m_min[i]) + '°</span><span class="wx-bar"><i style="left:' + a + '%;right:' + (100 - b) + '%"></i></span>' +
+        '<span class="num">' + Math.round(d.temperature_2m_max[i]) + '°</span></div>';
+    }).join('');
+    el.innerHTML = head +
+      '<div class="wx-top"><div class="card wx-now"><span class="wx-big-ico">' + wxIcon(c.weather_code, c.is_day) + '</span><div><b class="num">' + Math.round(c.temperature_2m) + '°</b>' +
+      '<div>' + wx[1] + '</div><small>Feels like ' + Math.round(c.apparent_temperature) + '° · H ' + Math.round(d.temperature_2m_max[0]) + '° L ' + Math.round(d.temperature_2m_min[0]) + '°</small></div></div>' +
+      '<div class="card wx-facts">' +
+      '<div><small>Rain chance</small><b>' + d.precipitation_probability_max[0] + '%</b></div>' +
+      '<div><small>Humidity</small><b>' + c.relative_humidity_2m + '%</b></div>' +
+      '<div><small>Wind</small><b>' + Math.round(c.wind_speed_10m) + (S.settings.units === 'celsius' ? ' km/h' : ' mph') + '</b></div>' +
+      '<div><small>UV index</small><b>' + Math.round(d.uv_index_max[0]) + '</b></div>' +
+      '<div><small>Sunrise</small><b>' + t(d.sunrise[0]) + '</b></div>' +
+      '<div><small>Sunset</small><b>' + t(d.sunset[0]) + '</b></div></div></div>' +
+      '<div class="card" style="margin-top:16px"><div class="label" style="margin-bottom:10px">Next 24 hours</div>' + hourlyBlock(24, 'hourly--flat') + '</div>' +
+      '<div class="card" style="margin-top:16px"><div class="label" style="margin-bottom:6px">10 days</div>' + days + '</div>';
   }
   function forecastBlock() {
     var w = S.weather;
@@ -334,9 +389,10 @@
       headsUpStrip(2, 4) +
       '<div class="today"><div>' + agenda(now) +
       '<div class="tomorrow"><div class="label" style="margin-bottom:8px">Tomorrow · ' + DAYS[tom.getDay()] + '</div>' + agenda(tom, true) + '</div>' +
-      forecastBlock() + '</div>' +
-      '<div>' + todayMealsCard() + sportsCompact() + '<div class="card today-todos"><div class="row" style="justify-content:space-between;margin-bottom:12px"><h2 style="font-size:24px">To-dos</h2>' +
-      '<button class="btn btn--sm btn--dark" data-act="add-todo">' + icon('plus', 18) + 'Add</button></div>' + todoLanes(true) + '</div></div></div>';
+      hourlyBlock(12) + forecastBlock() + '</div>' +
+      '<div>' + todayMealsCard() + sportsCompact() +
+      '<div class="card today-todos"><div class="row" style="justify-content:space-between;margin-bottom:12px"><h2 style="font-size:24px">To-dos</h2>' +
+      '<div class="row">' + todoWindowToggle() + '<button class="btn btn--sm btn--dark" data-act="add-todo">' + icon('plus', 18) + 'Add</button></div></div>' + todoLanes(true) + '</div></div></div>';
   }
 
   function todayMealsCard() {
@@ -358,17 +414,35 @@
     else if (t.due) meta.push(esc(t.due === today() ? 'Due today' : t.repeat));
     if (t.done && t.doneBy && t.doneBy !== t.assignee) meta.push('by ' + esc(person(t.doneBy).name));
     if (t.stars) meta.push('<span style="color:#C58A00">' + new Array(t.stars + 1).join('★') + '</span>');
-    return '<div class="todo' + (t.done ? ' is-done' : '') + (S.pending[t.id] ? ' is-pending' : '') + '" data-hold="' + t.id + '" style="--c:' + p.color + '">' +
-      '<button class="todo-check" data-done="' + t.id + '" aria-label="Done">' + '<span style="color:' + inkOn(p.color) + '">' + icon('tick', 22) + '</span></button>' +
-      '<button class="todo-text" data-done="' + t.id + '"><div class="todo-title">' + (t.emoji ? esc(t.emoji) + ' ' : '') + esc(t.title) + '</div>' +
+    var k = t.key || t.id;
+    return '<div class="todo' + (t.done ? ' is-done' : '') + (S.pending[k] ? ' is-pending' : '') + '" data-hold="' + t.id + '" style="--c:' + p.color + '">' +
+      '<button class="todo-check" data-done="' + k + '" aria-label="Done">' + '<span style="color:' + inkOn(p.color) + '">' + icon('tick', 22) + '</span></button>' +
+      '<button class="todo-text" data-done="' + k + '"><div class="todo-title">' + (t.emoji ? esc(t.emoji) + ' ' : '') + esc(t.title) + '</div>' +
       (meta.length ? '<div class="todo-meta">' + meta.join(' · ') + '</div>' : '') + '</button></div>';
+  }
+
+  // School days: before `morningUntil` the home screen shows the morning list, after it the rest.
+  function slotWindow() {
+    var mu = S.settings && S.settings.morningUntil, n = new Date();
+    if (!mu || n.getDay() === 0 || n.getDay() === 6) return null;
+    return n.getHours() < mu ? 'morning' : 'later';
+  }
+  function inWindow(t, w) {
+    if (!w) return true;
+    return w === 'morning' ? t.slot !== 'afternoon' && t.slot !== 'evening' : t.slot !== 'morning';
+  }
+  function todoWindowToggle() {
+    var w = slotWindow();
+    if (!w) return '';
+    return '<div class="seg"><button data-todo-all="0" class="' + (!S.todoAll ? 'is-on' : '') + '">' + (w === 'morning' ? 'Morning' : 'Afternoon & evening') + '</button>' +
+      '<button data-todo-all="1" class="' + (S.todoAll ? 'is-on' : '') + '">Full day</button></div>';
   }
 
   function todoLanes(compact) {
     var lanes = people().map(function (p) { return p.id; }).concat(['any']);
-    var html = '';
+    var html = '', w = compact && !S.todoAll ? slotWindow() : null;
     lanes.forEach(function (id) {
-      var list = S.tasks.filter(function (t) { return t.assignee === id; });
+      var list = S.tasks.filter(function (t) { return t.assignee === id && inWindow(t, w); });
       if (compact && !list.length) return;
       var p = person(id), done = list.filter(function (t) { return t.done; }).length;
       html += '<section class="lane" style="--c:' + p.color + '"><div class="lane-head">' + avatar(p, 40) +
@@ -386,7 +460,7 @@
       html += '</section>';
     });
     if (!html) html = '<div class="empty">Nothing to do today. Tap <b>Add</b> to create a to-do.</div>';
-    return compact ? html : '<div class="lanes">' + html + '</div>';
+    return '<div class="' + (compact ? 'lanes-home' : 'lanes') + '">' + html + '</div>';
   }
 
   function renderTodos() {
@@ -425,13 +499,14 @@
     return S.tasks.filter(function (t) { return t.id === id; })[0] || (S.allTasks || []).filter(function (t) { return t.id === id; })[0];
   }
 
-  function toggleDone(id) {
-    var t = S.tasks.filter(function (x) { return x.id === id; })[0];
-    if (!t || S.pending[id]) return;
+  function doneUrl(t) { return '/api/tasks/' + t.id + '/done?date=' + today() + (t.key && t.key !== t.id ? '&slot=' + t.slot : ''); }
+  function toggleDone(key) {
+    var t = S.tasks.filter(function (x) { return (x.key || x.id) === key; })[0];
+    if (!t || S.pending[key]) return;
     if (t.done) {
       t.done = false;
       render();
-      api('DELETE', '/api/tasks/' + id + '/done?date=' + today()).then(loadState, function (e) { toast(e.message); loadState(); });
+      api('DELETE', doneUrl(t)).then(loadState, function (e) { toast(e.message); loadState(); });
       return;
     }
     if (t.assignee === 'any' && people().length) return whoDidIt(t);
@@ -439,20 +514,21 @@
   }
 
   function complete(t, by) {
-    S.pending[t.id] = true;
+    var k = t.key || t.id;
+    S.pending[k] = true;
     render();
-    api('POST', '/api/tasks/' + t.id + '/done', { date: today(), by: by }).then(function () {
-      delete S.pending[t.id];
+    api('POST', '/api/tasks/' + t.id + '/done', { date: today(), by: by, slot: t.slot }).then(function () {
+      delete S.pending[k];
       t.done = true;
       t.doneBy = by || t.assignee;
       var earner = person(t.doneBy);
       if (t.stars && earner.stars) celebrate(earner.color, false);
       toast('<b>' + esc(t.title) + '</b> done' + (t.stars && earner.stars ? ' · +' + t.stars + '★ ' + esc(earner.name) : ''), function () {
-        api('DELETE', '/api/tasks/' + t.id + '/done?date=' + today()).then(loadState);
+        api('DELETE', doneUrl(t)).then(loadState);
       });
       return loadState();
     }).catch(function (e) {
-      delete S.pending[t.id];
+      delete S.pending[k];
       toast(e.message);
       render();
     });
@@ -472,7 +548,9 @@
   }
 
   // ---------------------------------------------------------------- To-do editor
-  var EMOJI = ['🧹', '🍽️', '🧺', '🛏️', '🗑️', '♻️', '🐶', '🐱', '🪴', '📚', '🎹', '🦷', '🚿', '🛒', '💊', '💳', '📞', '🚗', '✉️', '🎁'];
+  var EMOJI = ['🧹', '🍽️', '🧺', '🛏️', '🗑️', '♻️', '🐶', '🐱', '🐟', '🪴', '📚', '✏️', '🎒', '🎹', '🎸', '⚽', '🏀', '🩰', '🦷', '🚿', '🛁', '👕',
+    '👟', '🧥', '🥣', '🥪', '🍎', '💧', '🧃', '🧸', '🧩', '🎨', '💤', '⏰', '🙏', '💪', '🛒', '💊', '💳', '💵', '📞', '💻', '🚗', '⛽', '✉️', '📦',
+    '🧽', '🧼', '🪥', '🌱', '🍂', '❄️', '🔧', '💡', '🎁', '🎂', '⭐', '❤️'];
   var DOW_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
   function editTodo(existing) {
@@ -481,6 +559,7 @@
       schedule: { type: 'once' }
     };
     var sch = t.schedule;
+    t.slots = sch.slots ? sch.slots.slice() : t.slot ? [t.slot] : [];
     var draft = {
       type: sch.type, due: sch.due || '', every: sch.every || 1,
       days: sch.days || [new Date().getDay()], day: sch.day || new Date().getDate(),
@@ -518,7 +597,7 @@
         '<label class="field"><span>What needs doing?</span><input class="input" data-f="title" maxlength="120" value="' + esc(t.title) + '" placeholder="Take out the trash"></label>' +
         '<div class="field"><span>Icon</span><div class="choice emoji-pick">' + ['' ].concat(EMOJI).map(function (e) {
           return '<button type="button" data-emoji="' + e + '" class="' + ((t.emoji || '') === e ? 'is-on' : '') + '">' + (e || '–') + '</button>';
-        }).join('') + '</div></div>' +
+        }).join('') + '</div><input class="input" data-f="emoji" maxlength="8" style="margin-top:8px;max-width:260px" placeholder="Or type / paste any emoji" value="' + esc(EMOJI.indexOf(t.emoji) < 0 ? t.emoji || '' : '') + '"></div>' +
         '<div class="field"><span>Who</span><div class="choice choice--who">' + people().concat([person('any')]).map(function (p) {
           return '<button type="button" data-who="' + p.id + '" style="--c:' + p.color + '" class="' + (t.assignee === p.id ? 'is-on' : '') + '">' + esc(p.name) + '</button>';
         }).join('') + '</div></div>' +
@@ -526,8 +605,8 @@
           return '<button type="button" data-type="' + o[0] + '" class="' + (draft.type === o[0] ? 'is-on' : '') + '">' + o[1] + '</button>';
         }).join('') + '</div></div>' +
         '<div data-sched>' + scheduleFields() + '</div>' +
-        '<div class="field"><span>Time of day</span><div class="choice">' + [[null, 'Any time']].concat(SLOTS).map(function (o) {
-          return '<button type="button" data-slot="' + (o[0] || '') + '" class="' + ((t.slot || '') === (o[0] || '') ? 'is-on' : '') + '">' + o[1] + '</button>';
+        '<div class="field"><span>Time of day' + (draft.type !== 'once' ? ' (pick more than one to repeat it during the day)' : '') + '</span><div class="choice">' + [[null, 'Any time']].concat(SLOTS).map(function (o) {
+          return '<button type="button" data-slot="' + (o[0] || '') + '" class="' + ((o[0] ? t.slots.indexOf(o[0]) > -1 : !t.slots.length) ? 'is-on' : '') + '">' + o[1] + '</button>';
         }).join('') + '</div></div>' +
         '<div class="field"><span>Stars (for kids who collect them)</span><div class="choice">' + [0, 1, 2, 3, 5].map(function (n) {
           return '<button type="button" data-stars="' + n + '" class="' + (+t.stars === n ? 'is-on' : '') + '">' + (n ? n + '★' : 'None') + '</button>';
@@ -540,16 +619,26 @@
       function readInputs() {
         $$('[data-f]', root).forEach(function (i) {
           if (i.dataset.f === 'title') t.title = i.value;
+          else if (i.dataset.f === 'emoji') { if (i.value.trim()) t.emoji = i.value.trim(); }
           else draft[i.dataset.f] = i.value;
         });
       }
       function rerender() { readInputs(); root.innerHTML = body(); }
       root.addEventListener('click', function (e) {
         var b;
-        if ((b = e.target.closest('[data-emoji]'))) { readInputs(); t.emoji = b.dataset.emoji; return rerender(); }
+        if ((b = e.target.closest('[data-emoji]'))) { readInputs(); t.emoji = b.dataset.emoji; var ci = $('[data-f="emoji"]', root); if (ci) ci.value = ''; return rerender(); }
         if ((b = e.target.closest('[data-who]'))) { readInputs(); t.assignee = b.dataset.who; return rerender(); }
         if ((b = e.target.closest('[data-type]'))) { readInputs(); draft.type = b.dataset.type; return rerender(); }
-        if ((b = e.target.closest('[data-slot]'))) { readInputs(); t.slot = b.dataset.slot || null; return rerender(); }
+        if ((b = e.target.closest('[data-slot]'))) {
+          readInputs();
+          var sl = b.dataset.slot, si = t.slots.indexOf(sl);
+          if (!sl) t.slots = [];
+          else if (si > -1) t.slots.splice(si, 1);
+          else if (draft.type === 'once') t.slots = [sl];
+          else t.slots.push(sl);
+          t.slots.sort(function (a, c) { return ['morning', 'afternoon', 'evening'].indexOf(a) - ['morning', 'afternoon', 'evening'].indexOf(c); });
+          return rerender();
+        }
         if ((b = e.target.closest('[data-stars]'))) { readInputs(); t.stars = +b.dataset.stars; return rerender(); }
         if ((b = e.target.closest('[data-day]'))) {
           readInputs();
@@ -573,7 +662,7 @@
             if (draft.type === 'weekly') schedule.days = draft.days;
             if (draft.type === 'monthly') schedule.day = +draft.day;
           }
-          var payload = { task: { title: t.title, emoji: t.emoji || null, assignee: t.assignee, slot: t.slot, stars: t.stars, notes: t.notes, schedule: schedule }, today: today() };
+          var payload = { task: { title: t.title, emoji: t.emoji || null, assignee: t.assignee, slots: draft.type === 'once' ? t.slots.slice(0, 1) : t.slots, stars: t.stars, notes: t.notes, schedule: schedule }, today: today() };
           var req = existing ? api('PUT', '/api/tasks/' + existing.id, payload) : api('POST', '/api/tasks', payload);
           b.disabled = true;
           req.then(function () { close(); afterTaskChange(existing ? 'Saved' : 'Added'); }, function (err) { b.disabled = false; toast(err.message); });
@@ -728,6 +817,10 @@
       '<div class="row"><label class="field"><span>At night</span><select class="input" data-s="sleepStyle">' + opt('dim', 'Dim the screen', s.sleepStyle) + opt('clock', 'Show only a dim clock', s.sleepStyle) + opt('off', 'Stay on', s.sleepStyle) + '</select></label>' +
       '<label class="field"><span>Night from</span><select class="input" data-s="nightStart" data-num>' + hourOpts(s.nightStart) + '</select></label>' +
       '<label class="field"><span>until</span><select class="input" data-s="nightEnd" data-num>' + hourOpts(s.nightEnd) + '</select></label></div>' +
+      '<div class="row"><label class="field"><span>School days: home screen shows the morning to-dos until</span><select class="input" data-s="morningUntil" data-num>' +
+      '<option value="0"' + (!s.morningUntil ? ' selected' : '') + '>Off (always the full day)</option>' +
+      [9, 10, 11, 12, 13, 14, 15].map(function (h) { return '<option value="' + h + '"' + (+s.morningUntil === h ? ' selected' : '') + '>' + fmtTime(new Date(2000, 0, 1, h, 0)) + '</option>'; }).join('') +
+      '</select></label></div>' +
       '<div class="row"><label class="field"><span>Brightness</span><select class="input" data-b="mode">' + opt('schedule', 'By time of day', s.brightness.mode) + opt('auto', 'Automatic (light sensor)', s.brightness.mode) + opt('off', 'Always full', s.brightness.mode) + '</select></label>' +
       '<label class="field"><span>Daytime</span><select class="input" data-b="day" data-num>' + pct('day', 10) + '</select></label>' +
       '<label class="field"><span>Evening from</span><select class="input" data-b="eveningStart" data-num>' + hourOpts(s.brightness.eveningStart).replace(/<option value="([0-9]|1[01])"[^>]*>[^<]*<\/option>/g, '') + '</select></label>' +
@@ -1523,6 +1616,7 @@
     if (b.dataset.edit) return guard(function () { editTodo(findTask(b.dataset.edit)); });
     if (b.dataset.act === 'add-todo') return guard(function () { editTodo(null); });
     if (b.dataset.act === 'sleep') return sleepNow();
+    if (b.dataset.todoAll) { S.todoAll = b.dataset.todoAll === '1'; return render(); }
     if (b.dataset.homeMode) {
       S.homeMode = b.dataset.homeMode;
       store('homeMode', S.homeMode);
