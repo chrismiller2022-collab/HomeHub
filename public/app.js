@@ -139,7 +139,7 @@
     var p = people().filter(function (x) { return x.id === id; })[0];
     return p || { id: 'any', name: 'Anyone', color: '#6B655B' };
   }
-  function calendars() { return (S.settings && S.settings.calendars) || []; }
+  function calendars() { return ((S.settings && S.settings.calendars) || []).concat(S.sportCals || []); }
   function calById(id) { return calendars().filter(function (c) { return c.id === id; })[0] || { id: id, name: id, color: '#6B655B' }; }
   function evColor(ev) { return calById(ev.cals[0]).color; }
   function evPeople(ev) {
@@ -215,6 +215,7 @@
     return api('GET', '/api/events?from=' + r.from.toISOString() + '&to=' + r.to.toISOString()).then(function (d) {
       S.events = d.events;
       S.feedStatus = d.status || [];
+      S.sportCals = d.sportCals || [];
       S.eventsRange = r;
       store('events', { at: Date.now(), range: { from: +r.from, to: +r.to }, events: d.events });
       render();
