@@ -298,6 +298,49 @@
     }
     return '<div class="hourly ' + (cls || '') + '">' + out + '</div>';
   }
+  // The day's weather as a graph: icons and hours on top, the temperature line, rain chances below.
+  function hourlyChart(n) {
+    var w = S.weather, hr = w && w.hourly;
+    if (!hr) return '';
+    var key = w.current.time.slice(0, 13), i0 = 0;
+    for (var i = 0; i < hr.time.length; i++) if (hr.time[i].slice(0, 13) === key) { i0 = i; break; }
+    var idx = [];
+    for (var j = i0; j < Math.min(hr.time.length, i0 + n); j++) idx.push(j);
+    if (idx.length < 2) return '';
+    var temps = idx.map(function (j) { return hr.temperature_2m[j]; });
+    var rain = idx.map(function (j) { return hr.precipitation_probability[j] || 0; });
+    var lo = Math.min.apply(null, temps), hi = Math.max.apply(null, temps), span = Math.max(hi - lo, 4);
+    var m = idx.length, H = 100;
+    var X = function (k) { return (k + 0.5) / m * 1000; }, Y = function (v) { return 28 + (1 - (v - lo) / span) * 60; };
+    var pts = temps.map(function (v, k) { return X(k).toFixed(1) + ',' + Y(v).toFixed(1); });
+    var iHi = temps.indexOf(hi), iLo = temps.indexOf(lo), step = m > 14 ? 3 : 2;
+    var labels = temps.map(function (v, k) {
+      if (!(k === 0 || k === iHi || k === iLo || k % step === 0)) return '';
+      return '<span class="hc-t' + (k === iHi || k === iLo ? ' is-key' : '') + '" style="left:' + ((k + 0.5) / m * 100) + '%;top:' + Y(v) + '%">' + Math.round(v) + '°</span>';
+    }).join('');
+    var dots = temps.map(function (v, k) { return '<span class="hc-dot" style="left:' + ((k + 0.5) / m * 100) + '%;top:' + Y(v) + '%"></span>'; }).join('');
+    var head = idx.map(function (j, k) {
+      return '<div><span class="faint">' + (k === 0 ? 'Now' : hourLabel(hr.time[j])) + '</span><b>' + wxIcon(hr.weather_code[j], hr.is_day[j]) + '</b></div>';
+    }).join('');
+    var bars = rain.map(function (p) {
+      return '<div title="' + p + '% chance of rain"><i style="height:' + Math.max(2, p * 0.34) + 'px;opacity:' + (0.35 + p / 160) + '"></i><small>' + (p >= 10 ? p + '%' : '') + '</small></div>';
+    }).join('');
+    // A sentence that says what the graph shows.
+    var hourOf = function (k) { return fmtTime(new Date(hr.time[idx[k]])).replace(':00', ''); };
+    var wet = [];
+    rain.forEach(function (p, k) { if (p >= 40) wet.push(k); });
+    var now = WX[hr.weather_code[i0]] || ['', ''];
+    var say = now[1] + ' now. ' + (wet.length ? 'Rain likely ' + (wet.length === 1 ? 'around ' + hourOf(wet[0]) : hourOf(wet[0]) + '–' + hourOf(wet[wet.length - 1])) + ' (up to ' + Math.max.apply(null, rain) + '%). ' :
+      Math.max.apply(null, rain) >= 20 ? 'Small chance of rain (' + Math.max.apply(null, rain) + '%). ' : 'Dry. ') +
+      (iHi > iLo ? 'Warming to ' + Math.round(hi) + '° by ' + hourOf(iHi) + '.' : 'Cooling to ' + Math.round(lo) + '° by ' + hourOf(iLo) + '.');
+    return '<div class="hchart"><div class="hc-say">' + esc(say) + '</div>' +
+      '<div class="hc-row" style="grid-template-columns:repeat(' + m + ',minmax(0,1fr))">' + head + '</div>' +
+      '<div class="hc-plot"><svg viewBox="0 0 1000 ' + H + '" preserveAspectRatio="none" aria-hidden="true">' +
+      '<polygon points="' + X(0) + ',' + H + ' ' + pts.join(' ') + ' ' + X(m - 1) + ',' + H + '" class="hc-area"/>' +
+      '<polyline points="' + pts.join(' ') + '" class="hc-line" vector-effect="non-scaling-stroke"/></svg>' + dots + labels + '</div>' +
+      '<div class="hc-row hc-rain" style="grid-template-columns:repeat(' + m + ',minmax(0,1fr))">' + bars + '</div>' +
+      '<div class="hc-key faint">💧 chance of rain each hour</div></div>';
+  }
   function renderWeather() {
     var el = $('#view-weather'), w = S.weather;
     var head = '<div class="head"><div><h1>Weather</h1><div class="sub">' + esc((S.settings.location && S.settings.location.name) || '') + '</div></div></div>';
@@ -324,7 +367,7 @@
       '<div><small>UV index</small><b>' + Math.round(d.uv_index_max[0]) + '</b></div>' +
       '<div><small>Sunrise</small><b>' + t(d.sunrise[0]) + '</b></div>' +
       '<div><small>Sunset</small><b>' + t(d.sunset[0]) + '</b></div></div></div>' +
-      '<div class="card" style="margin-top:16px"><div class="label" style="margin-bottom:10px">Next 24 hours</div>' + hourlyBlock(24, 'hourly--flat') + '</div>' +
+      '<div class="card" style="margin-top:16px"><div class="label" style="margin-bottom:10px">Next 24 hours</div>' + hourlyChart(24) + '</div>' +
       '<div class="card" style="margin-top:16px"><div class="label" style="margin-bottom:6px">10 days</div>' + days + '</div>';
   }
   function forecastBlock() {
@@ -389,7 +432,7 @@
       headsUpStrip(2, 4) +
       '<div class="today"><div>' + agenda(now) +
       '<div class="tomorrow"><div class="label" style="margin-bottom:8px">Tomorrow · ' + DAYS[tom.getDay()] + '</div>' + agenda(tom, true) + '</div>' +
-      hourlyBlock(12) + forecastBlock() + '</div>' +
+      (S.weather && S.weather.hourly ? '<div class="card" style="margin-top:14px">' + hourlyChart(12) + '</div>' : '') + forecastBlock() + '</div>' +
       '<div>' + todayMealsCard() + sportsCompact() +
       '<div class="card today-todos"><div class="row" style="justify-content:space-between;margin-bottom:12px"><h2 style="font-size:24px">To-dos</h2>' +
       '<div class="row">' + todoWindowToggle() + '<button class="btn btn--sm btn--dark" data-act="add-todo">' + icon('plus', 18) + 'Add</button></div></div>' + todoLanes(true) + '</div></div></div>';
@@ -504,10 +547,12 @@
     var t = S.tasks.filter(function (x) { return (x.key || x.id) === key; })[0];
     if (!t || S.pending[key]) return;
     if (t.done) {
-      t.done = false;
-      render();
-      api('DELETE', doneUrl(t)).then(loadState, function (e) { toast(e.message); loadState(); });
-      return;
+      // Unticking needs the parent PIN (when one is set), so it can't be tapped on and off for fun.
+      return guard(function () {
+        t.done = false;
+        render();
+        api('DELETE', doneUrl(t)).then(loadState, function (e) { toast(e.message); loadState(); });
+      });
     }
     if (t.assignee === 'any' && people().length) return whoDidIt(t);
     complete(t, null);
@@ -522,9 +567,9 @@
       t.done = true;
       t.doneBy = by || t.assignee;
       var earner = person(t.doneBy);
-      if (t.stars && earner.stars) celebrate(earner.color, false);
+      if (earner.stars) celebrate(earner.color, false);
       toast('<b>' + esc(t.title) + '</b> done' + (t.stars && earner.stars ? ' · +' + t.stars + '★ ' + esc(earner.name) : ''), function () {
-        api('DELETE', doneUrl(t)).then(loadState);
+        guard(function () { api('DELETE', doneUrl(t)).then(loadState); });
       });
       return loadState();
     }).catch(function (e) {
@@ -875,7 +920,8 @@
 
       '<section class="card form"><h2>Stars and rewards</h2><div class="row">' +
       '<label class="field"><span>Daily star goal (per kid)</span><input class="input" type="number" min="0" max="50" data-s="dailyStarGoal" data-num value="' + (s.dailyStarGoal || 0) + '"></label>' +
-      '<label class="field"><span>When a starred to-do is done</span><select class="input" data-s="celebration">' + opt('confetti', 'Confetti', s.celebration) + opt('stars', 'Shower of stars', s.celebration) + opt('off', 'No animation', s.celebration) + '</select></label></div>' +
+      '<label class="field"><span>When a starred to-do is done</span><select class="input" data-s="celebration">' + opt('confetti', 'Confetti', s.celebration) + opt('stars', 'Shower of stars', s.celebration) + opt('off', 'No animation', s.celebration) + '</select></label>' +
+      '<label class="field"><span>When a kid hits the daily star goal</span><select class="input" data-s="goalCelebration">' + opt('fireworks', 'Fireworks', s.goalCelebration || 'fireworks') + opt('confetti', 'Big confetti', s.goalCelebration) + opt('stars', 'Big shower of stars', s.goalCelebration) + opt('off', 'No animation', s.goalCelebration) + '</select></label></div>' +
       '<div class="field"><span>Rewards kids can spend stars on</span></div>' +
       s.rewards.map(function (r, i) {
         return '<div class="row"><label class="field" style="flex:none;min-width:0;width:80px"><span>Icon</span><input class="input" data-r="' + i + '" data-k="emoji" value="' + esc(r.emoji || '🎁') + '"></label>' +
@@ -1234,8 +1280,9 @@
   // ---------------------------------------------------------------- Celebrations
   // Confetti (or a burst of stars) when a kid finishes a starred to-do; bigger for the daily goal.
   function celebrate(color, big) {
-    var style = S.settings && S.settings.celebration;
+    var style = S.settings && (big ? S.settings.goalCelebration || 'fireworks' : S.settings.celebration);
     if (style === 'off') return;
+    if (style === 'fireworks') return fireworks(color);
     var c = document.createElement('canvas');
     c.className = 'confetti';
     c.width = window.innerWidth; c.height = window.innerHeight;
@@ -1269,6 +1316,51 @@
         ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.a); ctx.fillRect(-p.r, -p.r / 2.5, p.r * 2, p.r / 1.25); ctx.restore();
       });
       if (k < 1) requestAnimationFrame(frame); else c.remove();
+    })(t0);
+  }
+
+  // Bursts of sparks across the screen for about five seconds.
+  function fireworks(color) {
+    var c = document.createElement('canvas');
+    c.className = 'confetti';
+    c.width = window.innerWidth; c.height = window.innerHeight;
+    document.body.appendChild(c);
+    var ctx = c.getContext('2d'), sparks = [], rockets = [], colors = [color, '#FFB000', '#2F6BFF', '#E4007C', '#00A36C', '#8A4DFF', '#FF5A36'];
+    var t0 = performance.now(), life = 5200, launches = 9;
+    for (var i = 0; i < launches; i++) {
+      rockets.push({ at: i * 420 + Math.random() * 200, x: c.width * (0.15 + Math.random() * 0.7), y: c.height, ty: c.height * (0.15 + Math.random() * 0.3),
+        col: colors[i % colors.length], fired: false, done: false });
+    }
+    (function frame(t) {
+      var el = t - t0;
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.fillStyle = 'rgba(0,0,0,0.22)';
+      ctx.fillRect(0, 0, c.width, c.height);
+      ctx.globalCompositeOperation = 'lighter';
+      rockets.forEach(function (r) {
+        if (r.done || el < r.at) return;
+        r.fired = true;
+        r.y -= (r.y - r.ty) * 0.09 + 4;
+        ctx.fillStyle = '#FFE9A8';
+        ctx.beginPath(); ctx.arc(r.x, r.y, 3.5, 0, 6.28); ctx.fill();
+        if (r.y - r.ty < 8) {
+          r.done = true;
+          for (var k = 0; k < 90; k++) {
+            var a = Math.random() * 6.28, v = 2 + Math.random() * 6;
+            sparks.push({ x: r.x, y: r.y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, l: 1, col: k % 3 ? r.col : '#FFF4C2' });
+          }
+        }
+      });
+      sparks.forEach(function (p) {
+        p.vy += 0.07; p.vx *= 0.985; p.vy *= 0.985; p.x += p.vx; p.y += p.vy; p.l -= 0.011;
+        if (p.l <= 0) return;
+        ctx.globalAlpha = Math.max(0, p.l);
+        ctx.fillStyle = p.col;
+        ctx.beginPath(); ctx.arc(p.x, p.y, 3, 0, 6.28); ctx.fill();
+      });
+      ctx.globalAlpha = 1;
+      sparks = sparks.filter(function (p) { return p.l > 0; });
+      if (el < life || sparks.length) requestAnimationFrame(frame); else c.remove();
     })(t0);
   }
 

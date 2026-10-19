@@ -16,7 +16,7 @@
   --radius: 18px;
   --rail: 104px;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 4px 14px rgba(0, 0, 0, 0.05);
-  font-family: Roboto, -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  font-family: Roboto, -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif, "Noto Color Emoji", "Apple Color Emoji";
   color: var(--ink);
   background: var(--bg);
 }
@@ -411,3 +411,20 @@ h1, h2, h3, p { margin: 0; }
 .wx-bar { position: relative; height: 8px; border-radius: 4px; background: var(--bg); }
 .wx-bar i { position: absolute; top: 0; bottom: 0; border-radius: 4px; background: linear-gradient(90deg, #6FA8DC, #F2B134); }
 @media (max-width: 700px) { .wx-top { grid-template-columns: 1fr; } .wx-day { grid-template-columns: 54px 32px 56px 34px minmax(0, 1fr) 34px; font-size: 16px; } }
+
+/* Hourly weather graph */
+.hchart { position: relative; }
+.hc-say { font-size: 17px; font-weight: 600; margin-bottom: 10px; }
+.hc-row { display: grid; text-align: center; font-size: 13px; }
+.hc-row b { display: block; font-size: 22px; line-height: 1.3; }
+.hc-plot { position: relative; height: 110px; margin: 2px 0 4px; }
+.hc-plot svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.hc-line { fill: none; stroke: #E08A1E; stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; }
+.hc-area { fill: #E08A1E; opacity: 0.10; }
+.hc-dot { position: absolute; width: 8px; height: 8px; margin: -4px 0 0 -4px; border-radius: 50%; background: #E08A1E; box-shadow: 0 0 0 2px var(--panel); }
+.hc-t { position: absolute; transform: translate(-50%, -150%); font-size: 14px; font-weight: 600; color: var(--ink-2); white-space: nowrap; }
+.hc-t.is-key { color: var(--ink); font-size: 16px; font-weight: 700; }
+.hc-rain div { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 52px; }
+.hc-rain i { display: block; width: 60%; max-width: 26px; background: #2F6FB5; border-radius: 4px 4px 0 0; }
+.hc-rain small { height: 15px; font-size: 12px; color: var(--ink-2); }
+.hc-key { font-size: 12px; margin-top: 4px; }
