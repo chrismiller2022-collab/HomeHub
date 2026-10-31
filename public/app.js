@@ -1826,15 +1826,23 @@
     render();
     loadState().then(function () { updateNight(); loadSports().catch(function () {}); if (S.homeMode === 'week') loadWeekMeals().catch(function () {}); return loadEvents(true); }).catch(function (e) { if (e.message !== 'locked') toast(e.message); });
     setInterval(tick, 15 * 1000);
-    setInterval(function () { if (S.view !== 'settings') loadState().catch(function () {}); }, 60 * 1000);
-    setInterval(function () { loadEvents(true).catch(function () {}); }, 5 * 60 * 1000);
+    // Refresh sparingly so the database can sleep between visits (each wake-up costs compute):
+    // every 10 minutes by day, not at all overnight, and right away when someone touches the screen.
+    setInterval(function () { if (S.view !== 'settings' && !isNightHour()) loadState().catch(function () {}); }, 10 * 60 * 1000);
+    setInterval(function () { if (!isNightHour()) loadEvents(true).catch(function () {}); }, 30 * 60 * 1000);
+    var lastTouchRefresh = Date.now();
+    document.addEventListener('pointerdown', function () {
+      if (Date.now() - lastTouchRefresh < 60 * 1000 || S.view === 'settings') return;
+      lastTouchRefresh = Date.now();
+      loadState().catch(function () {});
+    }, true);
     setInterval(loadWeather, 30 * 60 * 1000);
     // Scores: every minute while a game is on, otherwise every 10 minutes.
     (function sportsLoop() {
       var live = (S.sports || []).some(function (t) { return t.live; });
       setTimeout(function () { loadSports().catch(function () {}).then(sportsLoop); }, live ? 60 * 1000 : 10 * 60 * 1000);
     })();
-    setInterval(function () { if (S.homeMode === 'week') loadWeekMeals().catch(function () {}); }, 5 * 60 * 1000);
+    setInterval(function () { if (S.homeMode === 'week' && !isNightHour()) loadWeekMeals().catch(function () {}); }, 30 * 60 * 1000);
     window.HUB_STARTED = true;
   }
   start();
