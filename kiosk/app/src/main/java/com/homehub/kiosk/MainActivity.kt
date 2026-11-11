@@ -6,6 +6,13 @@ import android.app.AlertDialog
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.wifi.WifiManager
+import android.view.Gravity
+import android.widget.Button
+import android.widget.LinearLayout
+import android.widget.TextView
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
@@ -55,6 +62,17 @@ class MainActivity : Activity(), SensorEventListener {
     private var autoBrightness = false
     private var smoothedLux = -1f
 
+    // Offline handling: a screen with buttons instead of the browser's error page, and a Wi-Fi
+    // watchdog, because cheap frames often drop Wi-Fi and never rejoin on their own.
+    private lateinit var offline: LinearLayout
+    private lateinit var offlineDetail: TextView
+    private var pageFailed = false
+    private var offlineSince = 0L
+    private var lastReconnect = 0L
+    private var lastWifiRestart = 0L
+    private var wifiLock: WifiManager.WifiLock? = null
+    private val wifi by lazy { applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager }
+
     // ------------------------------------------------------------------ lifecycle
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(state: Bundle?) {
@@ -76,9 +94,21 @@ class MainActivity : Activity(), SensorEventListener {
         }
         web.addJavascriptInterface(Bridge(), "HomeHubNative")
         web.webViewClient = object : WebViewClient() {
+            override fun onPageStarted(view: WebView, url: String?, favicon: android.graphics.Bitmap?) {
+                pageFailed = false
+            }
+
+            override fun onPageFinished(view: WebView, url: String?) {
+                if (!pageFailed) showOffline(false)
+            }
+
             override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
-                // Wi-Fi not up yet after boot, or a blip: try again shortly.
-                if (request.isForMainFrame) retryLater()
+                // Wi-Fi not up yet after boot, or dropped: show the offline screen and keep trying.
+                if (request.isForMainFrame) {
+                    pageFailed = true
+                    showOffline(true)
+                    retryLater()
+                }
             }
 
             @android.annotation.TargetApi(26)
@@ -88,7 +118,10 @@ class MainActivity : Activity(), SensorEventListener {
                 return true
             }
         }
-        setContentView(FrameLayout(this).apply { addView(web) })
+        offline = buildOfflineScreen()
+        setContentView(FrameLayout(this).apply { addView(web); addView(offline) })
+        holdWifi()
+        watchNetwork()
 
         val fromIntent = intent?.dataString
         if (fromIntent != null) saveUrl(fromIntent)
@@ -133,9 +166,118 @@ class MainActivity : Activity(), SensorEventListener {
             or View.SYSTEM_UI_FLAG_LAYOUT_STABLE)
     }
 
+    private fun reload() {
+        prefs.getString("url", null)?.let { web.loadUrl(it) }
+    }
+
     private fun retryLater() {
         handler.removeCallbacksAndMessages("retry")
-        handler.postAtTime({ prefs.getString("url", null)?.let { web.loadUrl(it) } }, "retry", android.os.SystemClock.uptimeMillis() + 10_000)
+        wifiWatchdog()
+        handler.postAtTime({ reload() }, "retry", android.os.SystemClock.uptimeMillis() + 10_000)
+    }
+
+    // ------------------------------------------------------------------ offline screen and Wi-Fi watchdog
+    private fun buildOfflineScreen(): LinearLayout {
+        val dp = resources.displayMetrics.density
+        fun button(label: String, onTap: () -> Unit) = Button(this).apply {
+            text = label
+            textSize = 22f
+            setPadding((24 * dp).toInt(), (14 * dp).toInt(), (24 * dp).toInt(), (14 * dp).toInt())
+            setOnClickListener { onTap() }
+        }
+        offlineDetail = TextView(this).apply {
+            textSize = 20f
+            setTextColor(Color.parseColor("#5B564C"))
+            gravity = Gravity.CENTER
+            setPadding(0, (12 * dp).toInt(), 0, (28 * dp).toInt())
+        }
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setBackgroundColor(Color.parseColor("#F4F1EA"))
+            visibility = View.GONE
+            isClickable = true
+            addView(TextView(context).apply {
+                text = "Can’t reach Home Hub"
+                textSize = 40f
+                setTextColor(Color.parseColor("#1F1C17"))
+                gravity = Gravity.CENTER
+            })
+            addView(offlineDetail)
+            addView(LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER
+                addView(button("Try again") { reload() })
+                addView(button("Wi-Fi settings") {
+                    try { startActivity(Intent(Settings.ACTION_WIFI_SETTINGS)) } catch (e: Exception) { Toast.makeText(this@MainActivity, "Wi-Fi settings aren’t available", Toast.LENGTH_LONG).show() }
+                })
+                addView(button("Restart Wi-Fi") { restartWifi() })
+            })
+        }
+    }
+
+    private fun showOffline(show: Boolean) {
+        if (show) {
+            if (offlineSince == 0L) offlineSince = System.currentTimeMillis()
+            offlineDetail.text = wifiStatus() + "\nTrying again every 10 seconds."
+            offline.visibility = View.VISIBLE
+        } else {
+            offlineSince = 0L
+            offline.visibility = View.GONE
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun wifiStatus(): String {
+        if (!wifi.isWifiEnabled) return "Wi-Fi is turned off. Turning it back on…"
+        val info = wifi.connectionInfo
+        val ssid = info?.ssid?.trim('"')
+        return if (info != null && info.networkId != -1 && ssid != null && ssid != "<unknown ssid>") "Connected to “$ssid”, but the internet isn’t answering."
+        else "Wi-Fi isn’t connected to a network."
+    }
+
+    // While offline: nudge Wi-Fi to reconnect after a minute, and switch it off and on every 5 minutes.
+    @Suppress("DEPRECATION")
+    private fun wifiWatchdog() {
+        val now = System.currentTimeMillis()
+        if (offlineSince == 0L) return
+        try {
+            if (!wifi.isWifiEnabled) { wifi.isWifiEnabled = true; return }
+            if (now - offlineSince > 60_000 && now - lastReconnect > 60_000) {
+                lastReconnect = now
+                wifi.reconnect()
+            }
+            if (now - offlineSince > 5 * 60_000 && now - lastWifiRestart > 5 * 60_000) restartWifi()
+        } catch (e: Exception) { /* not allowed on this device */ }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun restartWifi() {
+        lastWifiRestart = System.currentTimeMillis()
+        try {
+            wifi.isWifiEnabled = false
+            handler.postDelayed({ try { wifi.isWifiEnabled = true } catch (e: Exception) { } }, 3000)
+        } catch (e: Exception) { }
+    }
+
+    // Keep the Wi-Fi radio fully awake while the app runs (some frames power it down when "idle").
+    @Suppress("DEPRECATION")
+    private fun holdWifi() {
+        try {
+            wifiLock = wifi.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "homehub").apply { setReferenceCounted(false); acquire() }
+        } catch (e: Exception) { }
+    }
+
+    // Reload as soon as the network comes back instead of waiting for the next retry.
+    private fun watchNetwork() {
+        if (Build.VERSION.SDK_INT < 24) return
+        try {
+            (getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager).registerDefaultNetworkCallback(object : ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: Network) {
+                    handler.postDelayed({ if (offline.visibility == View.VISIBLE) reload() }, 2000)
+                }
+            })
+        } catch (e: Exception) { }
     }
 
     // ------------------------------------------------------------------ setup: the Home Hub address

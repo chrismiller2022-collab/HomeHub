@@ -11,8 +11,8 @@ android {
         applicationId = "com.homehub.kiosk"
         minSdk = 23 // Android 6, what most cheap photo frames run
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.1"
     }
 
     // A fixed key checked into the repo so every CI build is signed the same way and a new APK
